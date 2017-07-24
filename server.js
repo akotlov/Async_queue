@@ -34,7 +34,7 @@ app.use(express.static(__dirname + '/build/'));
 var mLabURL = "mongodb://akotlov:asyncjobqueue@ds151289.mlab.com:51289/async-job-queue";
 var localDB = "mongodb://localhost/htmlDB";
 
-var promise = mongoose.connect(localDB, {
+var promise = mongoose.connect(mLabURL, {
   useMongoClient: true,
   /* other options */
 });
