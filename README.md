@@ -1,9 +1,10 @@
 How to run:
 
-install dependencies
+```
+install dependencies 
 npm run build
 npm start
-
+```
 
 Also Youtube video demo available at:
 
