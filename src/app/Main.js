@@ -221,17 +221,18 @@ class Main extends Component {
       },
       method: 'GET',
     })
-      .then(resp => resp.text())
+      .then(resp => resp.json())
       .then((data) => {
         if (data.status === 'processing' || data.status === 'error') {
-          this.setState({ dialogTitle: data.error_msg }, function () {
+          this.setState({ dialogTitle: data.status });
+          this.setState({ htmlContent: data.error_msg }, function () {
             this.handleOpen();
           });
           return;
         }
         // console.log(data);
-        this.setState({ dialogTitle: 'completed' });
-        this.setState({ htmlContent: data }, function () {
+        this.setState({ dialogTitle: data.status });
+        this.setState({ htmlContent: data.htmlString }, function () {
           this.handleOpen();
         });
         updateJobState();
@@ -310,7 +311,7 @@ class Main extends Component {
 
                     <CardText expandable>
                       {job.url}
-                      /><br />
+                      <br />
                       {job.job_id}
                     </CardText>
                     <CardActions expandable>

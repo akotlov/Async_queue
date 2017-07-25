@@ -147,22 +147,25 @@ const q = async.queue((task, callback) => {
 
 function pushIntoQueue(job) {
   q.push([{ url: job.url, job_id: job.job_id }], (error, task) => {
-    if (!error) {
-      Job.where({ job_id: task.job_id }).update(
-        { status: 'completed', completed_at: Date.now() },
-        (err, raw) => {
-          if (err) handleError(err, task.job_id);
-        },
-      );
-    } else {
+    if (error) {
       Job.where({ job_id: task.job_id }).update(
         { status: 'error', error_msg: error.message },
         (err, raw) => {
           if (err) handleError(err, task.job_id);
+          console.log(
+            `Queue finished processing task with ID ${task.job_id} and error message: ${error.message}`,
+          );
+        },
+      );
+    } else {
+      Job.where({ job_id: task.job_id }).update(
+        { status: 'completed', completed_at: Date.now() },
+        (err, raw) => {
+          if (err) handleError(err, task.job_id);
+          console.log(`Queue finished processing task with ID ${task.job_id}and status completed`);
         },
       );
     }
-    console.log('Queue finished processing task with ID ', task.job_id);
   });
 }
 
@@ -176,10 +179,10 @@ app.get('/job/:id', (req, res) => {
   Job.findOne({ job_id: req.params.id }).populate().exec((error, job) => {
     console.log(job.status);
     if (job.status === 'processing' || job.status === 'error') {
-      res.send(job);
+      res.json(job);
     } else {
-      const backToHTML = toHTML(job.htmlJSON);
-      res.send(backToHTML);
+      job.htmlString = toHTML(job.htmlJSON);
+      res.json(job);
     }
   });
 });
