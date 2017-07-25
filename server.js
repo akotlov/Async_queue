@@ -2,6 +2,7 @@ const express = require('express');
 
 const app = express();
 
+const request = require('request');
 const shortid = require('shortid');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
@@ -45,11 +46,9 @@ promise.then((db) => {
 });
 
 function handleError(err, jobID) {
-  console.log('handleError ', err.message, jobID);
-  Job.where({ job_id: jobID }).update({ status: 'error', error_msg: err.message }, (err, raw) => {
-    if (err) console.log(err); // handleError(err, result.job_id);
-    console.log('Updated');
-  });
+  console.log(err);
+  console.log(err.message);
+  console.log('Job ID is : ', jobID);
 }
 
 // Generic error handler used by all endpoints.
@@ -57,18 +56,6 @@ function handleError1(res, reason, message, code) {
   console.log(`ERROR: ${reason}`);
   res.status(code || 500).json({ error: message });
 }
-
-const adapterFor = (function () {
-  // var url = require('url'),
-  const adapters = {
-    'http:': http,
-    'https:': https,
-  };
-
-  return function (inputUrl) {
-    return adapters[url.parse(inputUrl).protocol];
-  };
-}());
 
 process.on('uncaughtException', (err) => {
   console.log('uncaughtException ', err);
@@ -142,53 +129,40 @@ app.get('/create_job_async/*', (req, res) => {
 });
 
 const q = async.queue((task, callback) => {
-  adapterFor(task.url)
-    .get(task.url, (res) => {
-      const { statusCode } = res;
-      const contentType = res.headers['content-type'];
-      let error;
-      if (statusCode !== 200) {
-        error = new Error('Request Failed.\n' + `Status Code: ${statusCode}`);
-      }
-      if (error) {
-        // console.error("Error message ", error.message);
-        // consume response data to free up memory
-        res.resume();
-        callback(error);
-        return;
-      }
-
-      res.setEncoding('utf8');
-      let html = '';
-      res.on('data', (data) => {
-        html += data;
-      });
-      res.on('end', (data) => {
-        var data = {
-          json: himalaya.parse(html),
-          job_id: task.job_id,
-        };
-        callback(null, data);
-      });
-    })
-    .on('error', (err) => {
-      callback(err);
+  request(task.url, (error, response, body) => {
+    if (error) callback(error);
+    console.log('statusCode:', response && response.statusCode);
+    const d = {
+      html: body,
+      json: himalaya.parse(body),
+      job_id: task.job_id,
+    };
+    Job.where({ job_id: task.job_id }).update({ htmlJSON: d.json }, (err, raw) => {
+      if (err) return callback(err, task);
+      console.log('The raw response from Mongo was ', raw);
+      return callback(null, task);
     });
+  });
 }, 100); // TODO see what is optimal number for my needs
 
 function pushIntoQueue(job) {
-  q.push([{ url: job.url, job_id: job.job_id }], (err, result) => {
-    if (err) return handleError(err, result.job_id);
-
-    console.log('Queue finished processing task with ID ', result.job_id);
-
-    Job.where({ job_id: result.job_id }).update(
-      { htmlJSON: result.json, status: 'completed', completed_at: Date.now() },
-      (err, raw) => {
-        if (err) handleError(err, result.job_id);
-        console.log('The raw response from Mongo was ', raw);
-      },
-    );
+  q.push([{ url: job.url, job_id: job.job_id }], (error, task) => {
+    if (!error) {
+      Job.where({ job_id: task.job_id }).update(
+        { status: 'completed', completed_at: Date.now() },
+        (err, raw) => {
+          if (err) handleError(err, task.job_id);
+        },
+      );
+    } else {
+      Job.where({ job_id: task.job_id }).update(
+        { status: 'error', error_msg: error.message },
+        (err, raw) => {
+          if (err) handleError(err, task.job_id);
+        },
+      );
+    }
+    console.log('Queue finished processing task with ID ', task.job_id);
   });
 }
 
@@ -202,7 +176,7 @@ app.get('/job/:id', (req, res) => {
   Job.findOne({ job_id: req.params.id }).populate().exec((error, job) => {
     console.log(job.status);
     if (job.status === 'processing' || job.status === 'error') {
-      res.send(job.status);
+      res.send(job);
     } else {
       const backToHTML = toHTML(job.htmlJSON);
       res.send(backToHTML);

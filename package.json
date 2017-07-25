@@ -51,6 +51,7 @@
     "react-dom": "^15.4.2",
     "react-swipeable-views": "^0.12.1",
     "react-tap-event-plugin": "^2.0.1",
+    "request": "^2.81.0",
     "shortid": "^2.2.8",
     "transfer-webpack-plugin": "^0.1.4",
     "url-exists": "^1.0.3",

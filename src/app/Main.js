@@ -204,7 +204,7 @@ class Main extends Component {
   checkJobStatus = (job) => {
     const component = this;
 
-    function updateJobState(data) {
+    function updateJobState() {
       const updated = component.state.jobIDs.map((jobToUpdate) => {
         if (jobToUpdate.job_id === job.job_id) {
           jobToUpdate.status = 'completed';
@@ -223,8 +223,8 @@ class Main extends Component {
     })
       .then(resp => resp.text())
       .then((data) => {
-        if (data === 'processing' || data === 'error') {
-          this.setState({ dialogTitle: data }, function () {
+        if (data.status === 'processing' || data.status === 'error') {
+          this.setState({ dialogTitle: data.error_msg }, function () {
             this.handleOpen();
           });
           return;
@@ -234,7 +234,7 @@ class Main extends Component {
         this.setState({ htmlContent: data }, function () {
           this.handleOpen();
         });
-        updateJobState(data);
+        updateJobState();
         // this.handleOpen()
       })
       .catch((err) => {
