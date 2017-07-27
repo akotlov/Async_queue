@@ -175,7 +175,7 @@ class Main extends Component {
           Accept: 'application/json',
           'Content-Type': 'application/json; charset=UTF-8',
         },
-        method: 'GET',
+        method: 'POST',
       })
         .then(checkStatus)
         .then(parseJSON)

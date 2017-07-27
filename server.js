@@ -11,11 +11,11 @@ const Job = require('./models/Job');
 
 const urlExists = require('url-exists');
 
-const http = require('http');
-const https = require('https');
-const url = require('url');
-// const html2json = require('html2json').html2json;
-// const json2html = require('html2json').json2html;
+// const http = require('http');
+// const https = require('https');
+// const url = require('url');
+const html2json = require('html2json').html2json;
+const json2html = require('html2json').json2html;
 const himalaya = require('himalaya');
 const toHTML = require('himalaya/translate').toHTML;
 
@@ -33,7 +33,9 @@ app.use(express.static(`${__dirname}/build/`));
 const mLabURL = 'mongodb://akotlov:asyncjobqueue@ds151289.mlab.com:51289/async-job-queue';
 const localDB = 'mongodb://localhost/htmlDB';
 
-const promise = mongoose.connect(mLabURL, {
+// MongoDb default connection pool size is 5.
+mongoose.Promise = global.Promise; // this will supress depricarion warning.see https://github.com/Automattic/mongoose/issues/4291
+const promise = mongoose.connect(localDB, {
   useMongoClient: true,
   /* other options */
 });
@@ -61,16 +63,71 @@ process.on('uncaughtException', (err) => {
   console.log('uncaughtException ', err);
 });
 
+// Async queue logic here..
+const q = async.queue((task, callback) => {
+  const maxSize = 10485760;
+  request(task.url, (error, response, body) => {
+    console.log(response.headers); // TODO check if headers has 'x-frame-options': 'SAMEORIGIN' - will prevent browser from displaying HTML in iframe.
+    if (error) callback(error);
+    console.log('statusCode:', response && response.statusCode);
+
+    let json;
+    try {
+      // JSON.parse(data)
+      json = himalaya.parse(body); // html2json(body);
+      console.log(json);
+    } catch (ex) {
+      return callback(error);
+      // return console.log(ex);
+    }
+    Job.where({ job_id: task.job_id }).update({ htmlJSON: json }, (err, raw) => {
+      if (err) return callback(err, task);
+      console.log('The raw response from Mongo was ', raw);
+      return callback(null, task);
+    });
+  });
+}, 100); // TODO see what is optimal number for my needs
+
+// assign a callback
+q.drain = function () {
+  console.log('q.drain all items have been processed');
+};
+
+function pushIntoQueue(job) {
+  q.push([{ url: job.url, job_id: job.job_id }], (error, task) => {
+    if (error) {
+      Job.where({ job_id: task.job_id }).update(
+        { status: 'error', error_msg: error.message },
+        (err, raw) => {
+          if (err) handleError(err, task.job_id);
+          console.log(
+            `Queue finished processing task with ID ${task.job_id} and error message: ${error.message}`,
+          );
+        },
+      );
+    } else {
+      Job.where({ job_id: task.job_id }).update(
+        { status: 'completed', completed_at: Date.now() },
+        (err, raw) => {
+          if (err) handleError(err, task.job_id);
+          console.log(`Queue finished processing task with ID ${task.job_id}and status completed`);
+        },
+      );
+    }
+  });
+}
+
 app.get('/jobs', (req, res) => {
   Job.find({})
-    .select('-htmlJSON') // we exclude this field because of its size
+    .select('-htmlJSON') // we exclude this field because of parsed Json size
     .exec((err, jobs) => {
       if (err) return handleError1(res, err.message, 'Failed to get submitted jobs.');
-      res.status(200).json(jobs);
+      return res.status(200).json(jobs);
     });
 });
 
-app.get('/create_job_async/*', (req, res) => {
+// POST not GET !!  - changed
+app.post('/create_job_async/*', (req, res) => {
   const job_url = req.params[0];
 
   async.waterfall(
@@ -128,52 +185,6 @@ app.get('/create_job_async/*', (req, res) => {
   );
 });
 
-const q = async.queue((task, callback) => {
-  request(task.url, (error, response, body) => {
-    if (error) callback(error);
-    console.log('statusCode:', response && response.statusCode);
-    const d = {
-      html: body,
-      json: himalaya.parse(body),
-      job_id: task.job_id,
-    };
-    Job.where({ job_id: task.job_id }).update({ htmlJSON: d.json }, (err, raw) => {
-      if (err) return callback(err, task);
-      console.log('The raw response from Mongo was ', raw);
-      return callback(null, task);
-    });
-  });
-}, 100); // TODO see what is optimal number for my needs
-
-function pushIntoQueue(job) {
-  q.push([{ url: job.url, job_id: job.job_id }], (error, task) => {
-    if (error) {
-      Job.where({ job_id: task.job_id }).update(
-        { status: 'error', error_msg: error.message },
-        (err, raw) => {
-          if (err) handleError(err, task.job_id);
-          console.log(
-            `Queue finished processing task with ID ${task.job_id} and error message: ${error.message}`,
-          );
-        },
-      );
-    } else {
-      Job.where({ job_id: task.job_id }).update(
-        { status: 'completed', completed_at: Date.now() },
-        (err, raw) => {
-          if (err) handleError(err, task.job_id);
-          console.log(`Queue finished processing task with ID ${task.job_id}and status completed`);
-        },
-      );
-    }
-  });
-}
-
-// assign a callback
-q.drain = function () {
-  console.log('q.drain all items have been processed');
-};
-
 app.get('/job/:id', (req, res) => {
   console.log(req.params.id);
   Job.findOne({ job_id: req.params.id }).populate().exec((error, job) => {
@@ -181,7 +192,7 @@ app.get('/job/:id', (req, res) => {
     if (job.status === 'processing' || job.status === 'error') {
       res.json(job);
     } else {
-      job.htmlString = toHTML(job.htmlJSON);
+      job.htmlString = toHTML(job.htmlJSON); // json2html(job.htmlJSON);
       res.json(job);
     }
   });
@@ -200,8 +211,22 @@ check if database is available before we init our app
 */
 
 // var options = {method: 'HEAD', host: url.parse(job_url).host, /*port: 80, path: '/'*/};
+
 /* var isValidUrlRequest = adapterFor(job_url).request(options, function(r) {
             console.log(JSON.stringify(r.statusCode));
             callback(null, r.statusCode);
         });
-      isValidUrlRequest.end(); */
+      isValidUrlRequest.end(); 
+
+      if (typeof job_url !== 'string') {
+        handleError(new Error('url should be a string'));
+        return;
+      } */
+
+/*
+1.Massdrop html content wont display in iframe because of 'x-frame-options': 'SAMEORIGIN' 
+option in header.  
+2.The BLATANT violation of REST standart was submitimg data(in this case url string) using GET 
+method/endpoint instead of POST.
+
+*/
