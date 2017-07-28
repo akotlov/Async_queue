@@ -148,19 +148,8 @@ if (cluster.isMaster && numCPUs > 1) {
   }
 
   app.get('/jobs', (req, res) => {
-    /* client.flushdb((err, succeeded) => {
-    console.log(succeeded); // will be true if successfull
-  }); */
-
-    // Note - using client.keys('*') is not recommended in production against large databases
-    client.hkeys('job', (error, results) => {
-      if (error) handleError(error);
-      console.log(`${results.length} results: `);
-      results.forEach((result, i) => {
-        console.log(`    ${i}: ${result}`);
-        // console.log(result.jobID);
-        // console.log(result.jobURL);
-      });
+    client.flushdb((err, succeeded) => {
+      console.log(succeeded); // will be true if successfull
     });
     Job.find({})
       .select('-htmlJSON') // we exclude this field because of parsed Json size
@@ -190,9 +179,6 @@ if (cluster.isMaster && numCPUs > 1) {
           if (exists) {
             // If URL is "live" init a job by saving job info into a database
             const job_id = shortid.generate();
-
-            // client.setex(job_url, 60, job_id);
-            client.hmset('job', ['jobID', job_id, 'jobURL', job_url], redis.print);
 
             const job = new Job({
               job_id,
