@@ -66,8 +66,11 @@ process.on('uncaughtException', (err) => {
 // Async queue logic here..
 const q = async.queue((task, callback) => {
   const maxSize = 10485760;
+
   request(task.url, (error, response, body) => {
-    console.log(response.headers); // TODO check if headers has 'x-frame-options': 'SAMEORIGIN' - will prevent browser from displaying HTML in iframe.
+    // TODO check if headers has 'x-frame-options': 'SAMEORIGIN' -
+    // it will prevent browser from displaying HTML in iframe.
+    console.log(response.headers);
     if (error) callback(error);
     console.log('statusCode:', response && response.statusCode);
 
