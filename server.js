@@ -1,6 +1,8 @@
 const cluster = require('cluster');
 const numCPUs = require('os').cpus().length;
 
+const Queue = require('bull');
+
 const express = require('express');
 
 const request = require('request');
@@ -30,6 +32,8 @@ if (cluster.isMaster && numCPUs > 1) {
   }
   cluster.on('exit', (worker, code, signal) => {
     console.log(`worker ${worker.process.pid} died`);
+    // Replace the dead worker,
+    cluster.fork();
   });
 
   cluster.on('online', (worker) => {
@@ -66,11 +70,11 @@ if (cluster.isMaster && numCPUs > 1) {
   });
 
   // create a new redis client and connect to our local redis instance
-  const client = redis.createClient();
+  /* const client = redis.createClient();
 
-  client.on('error', (err) => {
-    console.log(`Error ${err}`);
-  });
+client.on('error', (err) => {
+  console.log(`Error ${err}`);
+}); */
 
   function handleError(err, jobID) {
     console.log(err);
@@ -88,69 +92,61 @@ if (cluster.isMaster && numCPUs > 1) {
     console.log('uncaughtException ', err);
   });
 
-  // Async queue logic here..
-  const q = async.queue((task, callback) => {
-    const maxSize = 10485760;
+  const htmlParseQueue = new Queue('url parsing', 'redis://127.0.0.1:6379');
 
-    request(task.url, (error, response, body) => {
+  htmlParseQueue.on('completed', (job, result) => {
+    console.log('completed: ', result);
+    Job.where({ job_id: job.id }).update(
+      { status: 'completed', completed_at: Date.now() },
+      (err, raw) => {
+        if (err) handleError(err, job.id);
+        console.log(`Queue finished processing task with ID ${job.id} and status completed`);
+      },
+    );
+  });
+  htmlParseQueue.on('failed', (job, error) => {
+    Job.where({ job_id: job.id }).update(
+      { status: 'error', error_msg: error.message },
+      (err, raw) => {
+        if (err) handleError(err, job.id);
+        console.log(
+          `Queue finished processing task with ID ${job.id} and error message: ${error.message}`,
+        );
+      },
+    );
+  });
+
+  htmlParseQueue.process((job, done) => {
+    const maxSize = 10485760;
+    console.log(job.data, job.id);
+
+    request(job.data.url, (error, response, body) => {
       // TODO check if headers has 'x-frame-options': 'SAMEORIGIN' -
       // it will prevent browser from displaying HTML in iframe.
       // console.log(response.headers);
-      if (error) callback(error);
+      if (error) done(error);
       console.log('statusCode:', response && response.statusCode);
 
       let json;
       try {
-        // JSON.parse(data)
         json = himalaya.parse(body); // html2json(body);
-        console.log(json);
       } catch (ex) {
-        return callback(error);
+        return done(error);
         // return console.log(ex);
       }
-      Job.where({ job_id: task.job_id }).update({ htmlJSON: json }, (err, raw) => {
-        if (err) return callback(err, task);
+      Job.where({ job_id: job.id }).update({ htmlJSON: json }, (err, raw) => {
+        if (err) return done(err, job.id);
         console.log('The raw response from Mongo was ', raw);
-        return callback(null, task);
+        return done(null, job.id);
       });
     });
-  }, 100); // TODO see what is optimal number for my needs
-
-  // assign a callback
-  q.drain = function () {
-    console.log('q.drain all items have been processed');
-  };
-
-  function pushIntoQueue(job) {
-    q.push([{ url: job.url, job_id: job.job_id }], (error, task) => {
-      if (error) {
-        Job.where({ job_id: task.job_id }).update(
-          { status: 'error', error_msg: error.message },
-          (err, raw) => {
-            if (err) handleError(err, task.job_id);
-            console.log(
-              `Queue finished processing task with ID ${task.job_id} and error message: ${error.message}`,
-            );
-          },
-        );
-      } else {
-        Job.where({ job_id: task.job_id }).update(
-          { status: 'completed', completed_at: Date.now() },
-          (err, raw) => {
-            if (err) handleError(err, task.job_id);
-            console.log(
-              `Queue finished processing task with ID ${task.job_id}and status completed`,
-            );
-          },
-        );
-      }
-    });
-  }
+    console.log('Job done by worker', cluster.worker.id);
+  });
 
   app.get('/jobs', (req, res) => {
-    client.flushdb((err, succeeded) => {
-      console.log(succeeded); // will be true if successfull
-    });
+    /* client.flushdb((err, succeeded) => {
+    console.log(succeeded); // will be true if successfull
+  }); */
     Job.find({})
       .select('-htmlJSON') // we exclude this field because of parsed Json size
       .exec((err, jobs) => {
@@ -191,7 +187,9 @@ if (cluster.isMaster && numCPUs > 1) {
             });
             job.save((err, job) => {
               if (err) callback(err, job_id);
-              pushIntoQueue(job);
+
+              htmlParseQueue.add({ url: job.url }, { jobId: job.job_id });
+
               const result = {
                 msg: 'Task validated and pushed into a queue',
                 status: 200,
@@ -238,7 +236,6 @@ if (cluster.isMaster && numCPUs > 1) {
   });
   console.log(`Worker ${process.pid} started`);
 }
-
 /*
 TODO:
 -check if database is available before we init our app
