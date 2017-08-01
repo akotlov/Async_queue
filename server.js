@@ -47,34 +47,13 @@ const promise = mongoose.connect(
     useMongoClient: true,
     /* other options */
   },
-  (err) => {
+  /* (err) => {
     if (err) {
       console.log('Unable to connect MongoDB');
       process.exit(1);
     } else {
-      // CLUSTER
-      if (cluster.isMaster && numCPUs > 1) {
-        console.log(`Master ${process.pid} is running`);
-        for (let i = 0; i < numCPUs; i++) {
-          cluster.fork();
-        }
-        cluster.on('exit', (worker, code, signal) => {
-          console.log(`worker ${worker.process.pid} died`);
-          // Replace the dead worker,
-          cluster.fork();
-        });
-
-        cluster.on('online', (worker) => {
-          console.log(`Worker ${worker.process.pid} is online`);
-        });
-      } else {
-        const server = app.listen(process.env.PORT || 8080, () => {
-          const port = server.address().port;
-          // console.log('App now running on port', port);
-        });
-      }
     }
-  },
+  }, */
 );
 
 promise.then((db) => {
@@ -94,7 +73,7 @@ client.on('error', (err) => {
 function handleError(err, jobID) {
   console.log(err);
   console.log(err.message);
-  console.log('Job ID is : ', jobID);
+  // console.log('Job ID is : ', jobID);
 }
 
 // Generic error handler used by all endpoints.
@@ -111,34 +90,30 @@ const htmlParseQueue = new Queue('url parsing', 'redis://127.0.0.1:6379');
 
 htmlParseQueue.on('completed', (job, result) => {
   console.log('completed: ', result);
-  Job.where({ job_id: job.id }).update(
-    { status: 'completed', completed_at: Date.now() },
-    (err, raw) => {
-      if (err) handleError(err, job.id);
-      console.log(`Queue finished processing task with ID ${job.id} and status completed`);
-    },
-  );
+
+  const jobResult = new Job({
+    job_id: job.id,
+    url: job.data.url,
+    created_at: Date.now(),
+    htmlJSON: null, // json,
+    htmlString: null,
+    status: 'completed',
+    error_msg: null,
+  });
+  jobResult.save((err, jresult) => {
+    if (err) handleError(err);
+    console.log('saved ', jresult);
+  });
 });
+
 htmlParseQueue.on('failed', (job, error) => {
-  Job.where({ job_id: job.id }).update(
-    { status: 'error', error_msg: error.message },
-    (err, raw) => {
-      if (err) handleError(err, job.id);
-      console.log(
-        `Queue finished processing task with ID ${job.id} and error message: ${error.message}`,
-      );
-    },
-  );
+  console.log(error);
 });
 
 htmlParseQueue.process((job, done) => {
-  const maxSize = 10485760;
   // console.log(job.data, job.id);
   // console.log('Job processing by worker', cluster.worker.id);
-
   request(job.data.url, (error, response, body) => {
-    // TODO check if headers has 'x-frame-options': 'SAMEORIGIN' -
-    // it will prevent browser from displaying HTML in iframe.
     // console.log(response.headers);
     if (error) done(error);
     console.log('statusCode:', response && response.statusCode);
@@ -147,16 +122,74 @@ htmlParseQueue.process((job, done) => {
     try {
       json = himalaya.parse(body); // html2json(body);
     } catch (ex) {
-      return done(error);
+      done(error);
       // return console.log(ex);
     }
-    Job.where({ job_id: job.id }).update({ htmlJSON: json }, (err, raw) => {
-      if (err) return done(err, job.id);
-      console.log('The raw response from Mongo was ', raw);
-      return done(null, job.id);
-    });
   });
 });
+
+if (cluster.isMaster && numCPUs > 1) {
+  console.log(`Master ${process.pid} is running`);
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`worker ${worker.process.pid} died`);
+    // Replace the dead worker,
+    cluster.fork();
+  });
+
+  cluster.on('online', (worker) => {
+    console.log(`Worker ${worker.process.pid} is online`);
+  });
+} else {
+  const server = app.listen(process.env.PORT || 8080, () => {
+    const port = server.address().port;
+    // console.log('App now running on port', port);
+  });
+
+  app.post('/create_job_async/*', (req, res) => {
+    const job_url = req.params[0];
+    async.waterfall(
+      [
+        // Task 1
+        (callback) => {
+          urlExists(job_url, (err, exists) => {
+            callback(null, exists);
+          });
+        },
+        // Task 2
+        (exists, callback) => {
+          console.log(exists);
+          if (exists) {
+            const jobID = shortid.generate();
+            htmlParseQueue.add({ url: job_url }, { jobId: jobID });
+
+            const result = {
+              msg: 'Task validated and pushed into a queue',
+              status: 200,
+              payload: jobID,
+            };
+            callback(null, result);
+          } else {
+            // if URL is not "live" or not returned any HTML to parse notify a user
+            const result = {
+              msg: 'Not a valid url or no HTML returned',
+              status: 406,
+              payload: 'Not a valid url or no HTML returned',
+            };
+            callback(null, result);
+          }
+        },
+      ],
+      (err, result) => {
+        if (err) handleError(err);
+        console.log('Final create_job_async callback return status: ', result.msg);
+        res.status(result.status).json(result.payload);
+      },
+    );
+  });
+}
 
 app.get('/jobs', (req, res) => {
   Job.find({})
@@ -165,68 +198,6 @@ app.get('/jobs', (req, res) => {
       if (err) return handleError1(res, err.message, 'Failed to get submitted jobs.');
       return res.status(200).json(jobs);
     });
-});
-
-// POST not GET !!  - changed
-app.post('/create_job_async/*', (req, res) => {
-  const job_url = req.params[0];
-
-  async.waterfall(
-    [
-      // Task 1
-      // TODO if local server is offline it will return !exist even if url is valid.
-      // check if URL is reachable by sending just headers
-      function (callback) {
-        urlExists(job_url, (err, exists) => {
-          callback(null, exists);
-        });
-      },
-      // Task 2
-      function (exists, callback) {
-        console.log(exists);
-        if (exists) {
-          // If URL is "live" init a job by saving job info into a database
-          const job_id = shortid.generate();
-
-          const job = new Job({
-            job_id,
-            url: job_url,
-            created_at: Date.now(),
-            htmlJSON: null,
-            htmlString: null,
-            status: 'processing',
-            error_msg: null,
-          });
-          job.save((err, job) => {
-            if (err) callback(err, job_id);
-
-            htmlParseQueue.add({ url: job.url }, { jobId: job.job_id });
-
-            const result = {
-              msg: 'Task validated and pushed into a queue',
-              status: 200,
-              payload: job,
-            };
-            callback(null, result);
-          });
-        } else {
-          // if URL is not "live" or not returned any HTML to parse notify a user
-          const result = {
-            msg: 'Not a valid url or no HTML returned',
-            status: 406,
-            payload: 'Not a valid url or no HTML returned',
-          };
-
-          callback(null, result);
-        }
-      },
-    ],
-    (err, result) => {
-      if (err) handleError(err, job_id);
-      console.log('Final create_job_async callback return status: ', result.msg);
-      res.status(result.status).json(result.payload);
-    },
-  );
 });
 
 app.get('/job/:id', (req, res) => {
@@ -251,6 +222,8 @@ TODO:
 for example DB connections? Answer- will have one db connection per process.
 -what if master process crashes first?What would happen to its slave processes?
 -remove console.log statements,use debug
+ -check if headers has 'x-frame-options': 'SAMEORIGIN' -
+it will prevent browser from displaying HTML in iframe.
 
 */
 
@@ -272,5 +245,4 @@ for example DB connections? Answer- will have one db connection per process.
 option in header.  
 2.The BLATANT violation of REST standart was submitimg data(in this case url string) using GET 
 method/endpoint instead of POST.
-
-*/
+ */
