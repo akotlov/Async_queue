@@ -86,23 +86,23 @@ process.on('uncaughtException', (err) => {
   console.log('uncaughtException ', err);
 });
 
-const htmlParseQueue = new Queue('url parsing', 'redis://127.0.0.1:6379');
+const htmlParseQueue = new Queue('html_parsing', 'redis://127.0.0.1:6379');
 
 htmlParseQueue.on('completed', (job, result) => {
-  console.log('completed: ', result);
+  // console.log('completed job: ', job.id);
 
   const jobResult = new Job({
     job_id: job.id,
     url: job.data.url,
     created_at: Date.now(),
-    htmlJSON: null, // json,
+    htmlJSON: result, // json,
     htmlString: null,
     status: 'completed',
     error_msg: null,
   });
-  jobResult.save((err, jresult) => {
+  jobResult.save((err, jResult) => {
     if (err) handleError(err);
-    console.log('saved ', jresult);
+    console.log('saved ', jResult.job_id);
   });
 });
 
@@ -113,17 +113,17 @@ htmlParseQueue.on('failed', (job, error) => {
 htmlParseQueue.process((job, done) => {
   // console.log(job.data, job.id);
   // console.log('Job processing by worker', cluster.worker.id);
+
   request(job.data.url, (error, response, body) => {
     // console.log(response.headers);
     if (error) done(error);
     console.log('statusCode:', response && response.statusCode);
 
-    let json;
     try {
-      json = himalaya.parse(body); // html2json(body);
+      const json = himalaya.parse(body); // html2json(body);
+      return done(null, json);
     } catch (ex) {
-      done(error);
-      // return console.log(ex);
+      done(new Error(ex));
     }
   });
 });
@@ -146,6 +146,10 @@ if (cluster.isMaster && numCPUs > 1) {
   const server = app.listen(process.env.PORT || 8080, () => {
     const port = server.address().port;
     // console.log('App now running on port', port);
+  });
+
+  app.get('/', (req, res) => {
+    res.send('Hello World!');
   });
 
   app.post('/create_job_async/*', (req, res) => {
@@ -184,7 +188,7 @@ if (cluster.isMaster && numCPUs > 1) {
       ],
       (err, result) => {
         if (err) handleError(err);
-        console.log('Final create_job_async callback return status: ', result.msg);
+        // console.log('Final create_job_async callback return status: ', result.msg);
         res.status(result.status).json(result.payload);
       },
     );
