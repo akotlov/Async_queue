@@ -64,10 +64,18 @@ promise.then((db) => {
 });
 
 // create a new redis client and connect to our local redis instance
-/* const client = redis.createClient();
+const client = redis.createClient();
 
 client.on('error', (err) => {
   console.log(`Error ${err}`);
+});
+
+/* client.monitor(function (err, res) {
+  console.log("Entering monitoring mode.");
+});
+
+client.on("monitor", function (time, args, raw_reply) {
+  console.log(time + ": " + args); // 1458910076.446514:['set', 'foo', 'bar']
 }); */
 
 function handleError(err, jobID) {
@@ -82,51 +90,9 @@ function handleError1(res, reason, message, code) {
   res.status(code || 500).json({ error: message });
 }
 
-process.on('uncaughtException', (err) => {
+/* process.on('uncaughtException', (err) => {
   console.log('uncaughtException ', err);
-});
-
-const htmlParseQueue = new Queue('html_parsing', 'redis://127.0.0.1:6379');
-
-htmlParseQueue.on('completed', (job, result) => {
-  // console.log('completed job: ', job.id);
-
-  const jobResult = new Job({
-    job_id: job.id,
-    url: job.data.url,
-    created_at: Date.now(),
-    htmlJSON: result, // json,
-    htmlString: null,
-    status: 'completed',
-    error_msg: null,
-  });
-  jobResult.save((err, jResult) => {
-    if (err) handleError(err);
-    console.log('saved ', jResult.job_id);
-  });
-});
-
-htmlParseQueue.on('failed', (job, error) => {
-  console.log(error);
-});
-
-htmlParseQueue.process((job, done) => {
-  // console.log(job.data, job.id);
-  // console.log('Job processing by worker', cluster.worker.id);
-
-  request(job.data.url, (error, response, body) => {
-    // console.log(response.headers);
-    if (error) done(error);
-    console.log('statusCode:', response && response.statusCode);
-
-    try {
-      const json = himalaya.parse(body); // html2json(body);
-      return done(null, json);
-    } catch (ex) {
-      done(new Error(ex));
-    }
-  });
-});
+}); */
 
 if (cluster.isMaster && numCPUs > 1) {
   console.log(`Master ${process.pid} is running`);
@@ -148,8 +114,64 @@ if (cluster.isMaster && numCPUs > 1) {
     // console.log('App now running on port', port);
   });
 
-  app.get('/', (req, res) => {
+  /*
+app.get('/', (req, res) => {
     res.send('Hello World!');
+  }); */
+
+  const htmlParseQueue = new Queue('html_parsing', 'redis://127.0.0.1:6379');
+
+  htmlParseQueue.on('completed', (job, result) => {
+    console.log('completed job: ', job.id, result);
+  });
+  htmlParseQueue.on('failed', (job, error) => {
+    console.log(error);
+  });
+
+  function parseHtml(html, done) {
+    let parsed;
+    try {
+      parsed = himalaya.parse(html);
+    } catch (ex) {
+      done(new Error(ex));
+      // return null; // Oh well, but whatever...
+    }
+
+    return parsed; // Could be undefined!
+  }
+
+  htmlParseQueue.process((job, done) => {
+    // console.log('Job processing by worker', cluster.worker.id);
+    request(job.data.url, (error, response, body) => {
+      // console.log(response.headers);
+      if (error) done(error);
+      console.log('statusCode:', response && response.statusCode);
+      // Simulating async operation
+      // setImmediate(() => {
+      const json = parseHtml(body, done);
+
+      if (Array.isArray(json)) {
+        const jobResult = new Job({
+          job_id: job.id,
+          url: job.data.url,
+          created_at: Date.now(),
+          // htmlJSON: json, // json,
+          htmlString: null,
+          status: 'completed',
+          error_msg: null,
+        });
+        jobResult.save((err, jresult) => {
+          if (err) handleError(err);
+          // if (err) done(new Error(err));
+          console.log('saved ', jresult.job_id);
+          return done(null, jresult.url);
+        });
+      } else {
+        console.log('Parsed json is not array');
+      }
+
+      // });
+    });
   });
 
   app.post('/create_job_async/*', (req, res) => {
@@ -164,7 +186,7 @@ if (cluster.isMaster && numCPUs > 1) {
         },
         // Task 2
         (exists, callback) => {
-          console.log(exists);
+          // console.log(exists);
           if (exists) {
             const jobID = shortid.generate();
             htmlParseQueue.add({ url: job_url }, { jobId: jobID });
@@ -196,6 +218,13 @@ if (cluster.isMaster && numCPUs > 1) {
 }
 
 app.get('/jobs', (req, res) => {
+  /* client.keys('*', (err, keys) => {
+    if (err) return console.log(err);
+
+    for (let i = 0, len = keys.length; i < len; i++) {
+      console.log(keys[i]);
+    }
+  }); */
   Job.find({})
     .select('-htmlJSON') // we exclude this field because of parsed Json size
     .exec((err, jobs) => {
@@ -247,6 +276,4 @@ it will prevent browser from displaying HTML in iframe.
 /*
 1.Massdrop html content wont display in iframe because of 'x-frame-options': 'SAMEORIGIN' 
 option in header.  
-2.The BLATANT violation of REST standart was submitimg data(in this case url string) using GET 
-method/endpoint instead of POST.
  */

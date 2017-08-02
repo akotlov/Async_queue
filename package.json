@@ -45,6 +45,7 @@
     "himalaya": "^0.2.10",
     "html-webpack-plugin": "^2.24.1",
     "html2json": "^1.0.2",
+    "htmlparser2": "^3.9.2",
     "material-ui": "^0.17.4",
     "moment": "^2.18.1",
     "mongoose": "^4.11.3",
