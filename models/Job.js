@@ -8,7 +8,7 @@ const JobSchema = Schema({
   url: String,
   created_at: Number,
   completed_at: Number,
-  htmlJSON: [{}], // Schema.Types.Mixed,
+  htmlJSON: { type: Array, default: [] },
   htmlString: String,
   status: String,
   error_msg: String,

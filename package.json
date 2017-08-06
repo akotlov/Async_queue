@@ -41,6 +41,7 @@
     "babel-preset-stage-2": "^6.18.0",
     "body-parser": "^1.17.2",
     "bull": "^3.0.0-rc.4",
+    "circular-json": "^0.3.3",
     "express": "^4.15.2",
     "himalaya": "^0.2.10",
     "html-webpack-plugin": "^2.24.1",
