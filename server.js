@@ -300,17 +300,56 @@ app.post("/create_job_async/*", (req, res) => {
 });
 // }
 app.get("/jobs", (req, res) => {
-  redisClient.get("bull:html_parsing:completed", (error, result) => {
-    console.log(result);
+  const limit = 200;
+
+  distinct = function(items) {
+    var hash = {};
+    items.forEach(function(item) {
+      hash[item] = true;
+    });
+    var result = [];
+    for (var item in hash) {
+      result.push(item);
+    }
+    return result;
+  };
+
+  redisClient.keys(`${prefix}*`, (err, keys) => {
+    if (err) {
+      console.error("getKeys", err);
+      return next(err);
+    }
+    console.log(sf('found {0} keys for "{1}"', keys.length, prefix));
+
+    if (keys.length > 1) {
+      keys = distinct(
+        keys.map(function(key) {
+          var idx = key.indexOf(foldingCharacter, prefix.length);
+          if (idx > 0) {
+            return key.substring(0, idx + 1);
+          }
+          return key;
+        })
+      );
+    }
+
+    if (keys.length > limit) {
+      keys = keys.slice(0, limit);
+    }
+
+    keys = keys.sort();
+    //res.send(JSON.stringify(keys));
+    console.log(keys);
+    res.send(JSON.stringify(keys));
   });
 
-  Job.find({})
+  /*Job.find({})
     .select("-htmlJSON") // we exclude this field because of parsed Json size
     .exec((err, jobs) => {
       if (err)
         return handleError1(res, err.message, "Failed to get submitted jobs.");
       return res.status(200).json(jobs);
-    });
+    });*/
 });
 
 app.get("/job/:id", (req, res) => {
@@ -327,92 +366,63 @@ app.get("/job/:id", (req, res) => {
 
 console.log(`Worker ${process.pid} started`);
 
-const limit = 100;
+var cursor1 = "0";
 
-redisClient.keys(`${prefix}*`, (err, keys) => {
+redisClient.scan(cursor1, "MATCH", prefix + "*", "COUNT", "10", function(
+  err,
+  reply
+) {
   if (err) {
-    console.error("getKeys", err);
-    return next(err);
+    throw err;
   }
-  console.log(sf('found {0} keys for "{1}"', keys.length, prefix));
+  cursor1 = reply[0];
+  if (cursor1 === "0") {
+    return console.log("Scan Complete");
+  } else {
+    // do your processing
+    // reply[1] is an array of matched keys.
+    console.log(reply[1]);
+    //return scan();
+  }
+});
 
-  var lookup = {};
-  var reducedKeys = [];
-  keys.forEach(function(key) {
-    var fullKey = key;
-    if (prefix) {
-      key = key.substr((prefix + foldingCharacter).length);
-    }
-    var parts = key.split(foldingCharacter);
-    var firstPrefix = parts[0];
-    if (lookup.hasOwnProperty(firstPrefix)) {
-      lookup[firstPrefix].count++;
-    } else {
-      lookup[firstPrefix] = {
-        attr: { id: firstPrefix },
-        count: parts.length === 1 ? 0 : 1
-      };
-      lookup[firstPrefix].fullKey = fullKey;
-      if (parts.length === 1) {
-        lookup[firstPrefix].leaf = true;
-      }
-      reducedKeys.push(lookup[firstPrefix]);
-    }
-  });
+var cursor2 = "0";
 
-  reducedKeys.forEach(function(data) {
-    if (data.count === 0) {
-      data.data = data.attr.id;
-    } else {
-      data.data = data.attr.id + ":* (" + data.count + ")";
-      data.state = "closed";
-    }
-  });
+redisClient.zscan("bull:html_parsing:failed", cursor2, "COUNT", "10", function(
+  err,
+  reply
+) {
+  if (err) {
+    throw err;
+  }
+  console.log(reply);
+  cursor2 = reply[0];
+  if (cursor2 === "0") {
+    return console.log("Scan Complete");
+  } else {
+    // do your processing
+    // reply[1] is an array of matched keys.
+    console.log(JSON.stringify(reply[1]));
+    //return scan();
+  }
+});
 
-  async.forEachLimit(
-    reducedKeys,
-    10,
-    function(keyData, callback) {
-      if (keyData.leaf) {
-        redisClient.type(keyData.fullKey, function(err, type) {
-          if (err) {
-            return callback(err);
-          }
-          keyData.attr.rel = type;
-          var sizeCallback = function(err, count) {
-            if (err) {
-              return callback(err);
-            } else {
-              keyData.data += " (" + count + ")";
-              callback();
-            }
-          };
-          if (type == "list") {
-            redisClient.llen(keyData.fullKey, sizeCallback);
-          } else if (type == "set") {
-            redisClient.scard(keyData.fullKey, sizeCallback);
-          } else if (type == "zset") {
-            redisClient.zcard(keyData.fullKey, sizeCallback);
-          } else {
-            callback();
-          }
-        });
-      } else {
-        callback();
-      }
-    },
-    function(err) {
-      if (err) {
-        console.error("getKeys", err);
-        return next(err);
-      }
-      reducedKeys = reducedKeys.sort(function(a, b) {
-        return a.data > b.data ? 1 : -1;
-      });
-      //res.send(JSON.stringify(reducedKeys));
-      console.log(reducedKeys);
-    }
-  );
+var cursor3 = "0";
+
+redisClient.hscan("bull:html_parsing:ByicbxkwW", cursor3, function(err, reply) {
+  if (err) {
+    throw err;
+  }
+  console.log(reply);
+  cursor3 = reply[0];
+  if (cursor2 === "0") {
+    return console.log("Scan Complete");
+  } else {
+    // do your processing
+    // reply[1] is an array of matched keys.
+    console.log(JSON.stringify(reply[1]));
+    //return scan();
+  }
 });
 
 /*
