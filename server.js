@@ -1,31 +1,34 @@
-const cluster = require('cluster');
-const numCPUs = require('os').cpus().length;
+const cluster = require("cluster");
+const numCPUs = require("os").cpus().length;
 
-const Queue = require('bull');
+const Queue = require("bull");
 
-const express = require('express');
+const express = require("express");
 
-const request = require('request');
-const shortid = require('shortid');
-const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
-const async = require('async');
-const redis = require('redis');
+const request = require("request");
+const shortid = require("shortid");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+const async = require("async");
+const redis = require("redis");
+const sf = require("sf");
 
-const Job = require('./models/Job');
+const Job = require("./models/Job");
 
-const urlExists = require('url-exists');
+const urlExists = require("url-exists");
 
 // const http = require('http');
 // const https = require('https');
 // const url = require('url');
 // const html2json = require('html2json').html2json;
 // const json2html = require('html2json').json2html;
-const himalaya = require('himalaya');
-const toHTML = require('himalaya/translate').toHTML;
+const himalaya = require("himalaya");
+const toHTML = require("himalaya/translate").toHTML;
 
-const htmlparser = require('htmlparser2');
-const CircularJSON = require('circular-json');
+const htmlparser = require("htmlparser2");
+
+const foldingCharacter = ":";
+const prefix = "bull:html_parsing:";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -39,41 +42,42 @@ app.use(express.static(`${__dirname}/build/`));
   next();
 }); */
 
-const mLabURL = 'mongodb://akotlov:asyncjobqueue@ds151289.mlab.com:51289/async-job-queue';
-const localDB = 'mongodb://localhost/htmlDB';
+const mLabURL =
+  "mongodb://akotlov:asyncjobqueue@ds151289.mlab.com:51289/async-job-queue";
+const localDB = "mongodb://localhost/htmlDB";
 
 // MongoDb default connection pool size is 5.
 mongoose.Promise = global.Promise; // this will supress depricarion warning.see https://github.com/Automattic/mongoose/issues/4291
 const promise = mongoose.connect(
   localDB,
   {
-    useMongoClient: true,
+    useMongoClient: true
     /* other options */
   },
-  (err) => {
+  err => {
     if (err) {
-      console.log('Unable to connect MongoDB');
+      console.log("Unable to connect MongoDB");
       process.exit(1);
     } else {
       const server = app.listen(process.env.PORT || 8080, () => {
         const port = server.address().port;
-        console.log('App now running on port', port);
+        console.log("App now running on port", port);
       });
     }
-  },
+  }
 );
 
-promise.then((db) => {
-  db.on('error', console.error.bind(console, 'connection error:'));
-  db.once('open', () => {
-    console.log('connection to db is open');
+promise.then(db => {
+  db.on("error", console.error.bind(console, "connection error:"));
+  db.once("open", () => {
+    console.log("connection to db is open");
   });
 });
 
 // create a new redis client and connect to our local redis instance
-const client = redis.createClient();
+const redisClient = redis.createClient();
 
-client.on('error', (err) => {
+redisClient.on("error", err => {
   console.log(`Error ${err}`);
 });
 
@@ -86,8 +90,8 @@ client.on("monitor", function (time, args, raw_reply) {
 }); */
 
 function handleError(err, jobID) {
-  console.log(err);
-  console.log(err.message);
+  console.log("handleError ", err);
+  console.log("handleError ", err.message);
   // console.log('Job ID is : ', jobID);
 }
 
@@ -97,9 +101,10 @@ function handleError1(res, reason, message, code) {
   res.status(code || 500).json({ error: message });
 }
 
-/* process.on('uncaughtException', (err) => {
-  console.log('uncaughtException ', err);
-}); */
+process.on("uncaughtException", err => {
+  console.error(`Uncaught exception: ${err.stack}`);
+  process.exit(1);
+});
 
 /* if (cluster.isMaster && numCPUs > 1) {
   console.log(`Master ${process.pid} is running`);
@@ -122,13 +127,14 @@ app.get('/', (req, res) => {
     res.send('Hello World!');
   }); */
 
-const htmlParseQueue = new Queue('html_parsing', 'redis://127.0.0.1:6379');
+const htmlParseQueue = new Queue("html_parsing", "redis://127.0.0.1:6379");
 
-htmlParseQueue.on('completed', (job, result) => {
-  console.log('completed job: ', job.id, result);
+htmlParseQueue.on("completed", (job, result) => {
+  console.log("completed job: ", job.id, result);
 });
-htmlParseQueue.on('failed', (job, error) => {
-  console.log(error);
+
+htmlParseQueue.on("failed", (job, error) => {
+  handleError(error, job.id);
 });
 
 /* function parseHtml(html, done) {
@@ -167,9 +173,9 @@ function parseHtml(data) {
         for (let i = 1; i < tags.length; i++) {
           tagsWithCount.push({ name: tags[i], count: tagsCount[tags[i]] });
         }
-      },
+      }
     },
-    { decodeEntities: true },
+    { decodeEntities: true }
   );
 
   parsedData.write(data);
@@ -178,52 +184,63 @@ function parseHtml(data) {
   return tagsWithCount;
 }
 
+function bytesToSize(bytes) {
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  if (bytes === 0) return "n/a";
+  const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)), 10);
+  if (i === 0) return `${bytes} ${sizes[i]})`;
+  return `${(bytes / 1024 ** i).toFixed(1)} ${sizes[i]}`;
+}
+
 htmlParseQueue.process((job, done) => {
   // console.log('Job processing by worker', cluster.worker.id);
   /* request(job.data.url, (error, response, body) => {
     if (error) done(error);
     console.log('statusCode:', response && response.statusCode);
   }); */
-  const maxSize = 10485760;
+  const maxSize = 1048576;
   request(
     {
       url: job.data.url,
-      method: 'HEAD',
+      method: "HEAD"
     },
     (err, headRes) => {
-      const size = headRes.headers['content-length'];
+      const size = headRes.headers["content-length"];
       if (size > maxSize) {
         console.log(`Resource size exceeds limit (${size})`);
-        done(new Error('Resource stream exceeded limit'));
+        done(new Error("Resource stream exceeded limit"));
       } else {
         let dataSize = 0;
-        let body = '';
+        let body = "";
 
         const res = request({ url: job.data.url });
 
-        res.on('data', (data) => {
+        res.on("data", data => {
           dataSize += data.length;
 
           if (dataSize > maxSize) {
-            console.log(`Resource stream exceeded limit (${size})`);
-            done(new Error('Resource stream exceeded limit'));
+            console.log(`Resource stream exceeded limit (${dataSize})`);
+            done(new Error("Resource stream exceeded limit"));
             res.abort(); // Abort the response (close and cleanup the stream)
           }
           body += data;
-          console.log(`Resource length is  (${body.length})`);
         });
-        res.on('end', () => {
+        res.on("end", () => {
           // console.log(`BODY: ${body}`);
+          // const l = (body.length / 1024).toFixed(3);
+          const l = bytesToSize(body.length);
+          console.log("Resource lenght is", l);
           const parsedBody = parseHtml(body);
           // const json = himalaya.parse(body);
           const jobResult = new Job({
             job_id: job.id,
             url: job.data.url,
             created_at: Date.now(),
+            size: l,
             htmlJSON: parsedBody,
             htmlString: null,
-            status: 'completed',
-            error_msg: null,
+            status: "completed",
+            error_msg: null
           });
           jobResult.save((error, jresult) => {
             if (err) done(new Error(error));
@@ -231,18 +248,21 @@ htmlParseQueue.process((job, done) => {
             return done(null, jresult.url);
           });
         });
+        res.on("error", error => {
+          done(new Error(error));
+        });
         res.end();
       }
-    },
+    }
   );
 });
 
-app.post('/create_job_async/*', (req, res) => {
+app.post("/create_job_async/*", (req, res) => {
   const job_url = req.params[0];
   async.waterfall(
     [
       // Task 1
-      (callback) => {
+      callback => {
         urlExists(job_url, (err, exists) => {
           callback(null, exists);
         });
@@ -255,61 +275,145 @@ app.post('/create_job_async/*', (req, res) => {
           htmlParseQueue.add({ url: job_url }, { jobId: jobID });
 
           const result = {
-            msg: 'Task validated and pushed into a queue',
+            msg: "Task validated and pushed into a queue",
             status: 200,
-            payload: jobID,
+            payload: jobID
           };
           callback(null, result);
         } else {
           // if URL is not "live" or not returned any HTML to parse notify a user
           const result = {
-            msg: 'Not a valid url or no HTML returned',
+            msg: "Not a valid url or no HTML returned",
             status: 406,
-            payload: 'Not a valid url or no HTML returned',
+            payload: "Not a valid url or no HTML returned"
           };
           callback(null, result);
         }
-      },
+      }
     ],
     (err, result) => {
       if (err) handleError(err);
       // console.log('Final create_job_async callback return status: ', result.msg);
       res.status(result.status).json(result.payload);
-    },
+    }
   );
 });
 // }
-
-app.get('/jobs', (req, res) => {
-  client.hgetall('failed', (err, value) => {
-    if (err) {
-      console.error('error getting key:', err);
-    } else {
-      console.log('key has the value %s', value);
-    }
+app.get("/jobs", (req, res) => {
+  redisClient.get("bull:html_parsing:completed", (error, result) => {
+    console.log(result);
   });
+
   Job.find({})
-    .select('-htmlJSON') // we exclude this field because of parsed Json size
+    .select("-htmlJSON") // we exclude this field because of parsed Json size
     .exec((err, jobs) => {
-      if (err) return handleError1(res, err.message, 'Failed to get submitted jobs.');
+      if (err)
+        return handleError1(res, err.message, "Failed to get submitted jobs.");
       return res.status(200).json(jobs);
     });
 });
 
-app.get('/job/:id', (req, res) => {
+app.get("/job/:id", (req, res) => {
   // console.log(req.params.id);
   Job.findOne({ job_id: req.params.id }).populate().exec((error, job) => {
     console.log(job.status);
-    if (job.status === 'processing' || job.status === 'error') {
+    if (job.status === "processing" || job.status === "error") {
       res.json(job);
     } else {
-      job.htmlString = toHTML(job.htmlJSON); // json2html(job.htmlJSON);
       res.json(job);
     }
   });
 });
 
 console.log(`Worker ${process.pid} started`);
+
+const limit = 100;
+
+redisClient.keys(`${prefix}*`, (err, keys) => {
+  if (err) {
+    console.error("getKeys", err);
+    return next(err);
+  }
+  console.log(sf('found {0} keys for "{1}"', keys.length, prefix));
+
+  var lookup = {};
+  var reducedKeys = [];
+  keys.forEach(function(key) {
+    var fullKey = key;
+    if (prefix) {
+      key = key.substr((prefix + foldingCharacter).length);
+    }
+    var parts = key.split(foldingCharacter);
+    var firstPrefix = parts[0];
+    if (lookup.hasOwnProperty(firstPrefix)) {
+      lookup[firstPrefix].count++;
+    } else {
+      lookup[firstPrefix] = {
+        attr: { id: firstPrefix },
+        count: parts.length === 1 ? 0 : 1
+      };
+      lookup[firstPrefix].fullKey = fullKey;
+      if (parts.length === 1) {
+        lookup[firstPrefix].leaf = true;
+      }
+      reducedKeys.push(lookup[firstPrefix]);
+    }
+  });
+
+  reducedKeys.forEach(function(data) {
+    if (data.count === 0) {
+      data.data = data.attr.id;
+    } else {
+      data.data = data.attr.id + ":* (" + data.count + ")";
+      data.state = "closed";
+    }
+  });
+
+  async.forEachLimit(
+    reducedKeys,
+    10,
+    function(keyData, callback) {
+      if (keyData.leaf) {
+        redisClient.type(keyData.fullKey, function(err, type) {
+          if (err) {
+            return callback(err);
+          }
+          keyData.attr.rel = type;
+          var sizeCallback = function(err, count) {
+            if (err) {
+              return callback(err);
+            } else {
+              keyData.data += " (" + count + ")";
+              callback();
+            }
+          };
+          if (type == "list") {
+            redisClient.llen(keyData.fullKey, sizeCallback);
+          } else if (type == "set") {
+            redisClient.scard(keyData.fullKey, sizeCallback);
+          } else if (type == "zset") {
+            redisClient.zcard(keyData.fullKey, sizeCallback);
+          } else {
+            callback();
+          }
+        });
+      } else {
+        callback();
+      }
+    },
+    function(err) {
+      if (err) {
+        console.error("getKeys", err);
+        return next(err);
+      }
+      reducedKeys = reducedKeys.sort(function(a, b) {
+        return a.data > b.data ? 1 : -1;
+      });
+      //res.send(JSON.stringify(reducedKeys));
+      console.log(reducedKeys);
+    }
+  );
+});
 
 /*
 TODO:

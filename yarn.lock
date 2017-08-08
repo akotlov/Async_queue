@@ -1169,7 +1169,7 @@ cipher-base@^1.0.0, cipher-base@^1.0.1, cipher-base@^1.0.3:
     inherits "^2.0.1"
     safe-buffer "^5.0.1"
 
-circular-json@^0.3.1, circular-json@^0.3.3:
+circular-json@^0.3.1:
   version "0.3.3"
   resolved "https://registry.yarnpkg.com/circular-json/-/circular-json-0.3.3.tgz#815c99ea84f6809529d2f45791bdf82711352d66"
 
@@ -4076,6 +4076,12 @@ setimmediate@^1.0.4, setimmediate@^1.0.5:
 setprototypeof@1.0.3:
   version "1.0.3"
   resolved "https://registry.yarnpkg.com/setprototypeof/-/setprototypeof-1.0.3.tgz#66567e37043eeb4f04d91bd658c0cbefb55b8e04"
+
+sf@^0.1.9:
+  version "0.1.9"
+  resolved "https://registry.yarnpkg.com/sf/-/sf-0.1.9.tgz#010c8283edb985621b65efbc88fb2eafb7beff0d"
+  dependencies:
+    util "0.10.3"
 
 sha.js@^2.4.0, sha.js@^2.4.8:
   version "2.4.8"

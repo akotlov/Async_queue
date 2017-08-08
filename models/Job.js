@@ -7,6 +7,7 @@ const JobSchema = Schema({
   job_id: String,
   url: String,
   created_at: Number,
+  size: String,
   completed_at: Number,
   htmlJSON: { type: Array, default: [] },
   htmlString: String,
