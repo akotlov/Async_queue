@@ -28,7 +28,7 @@ const toHTML = require("himalaya/translate").toHTML;
 const htmlparser = require("htmlparser2");
 
 const foldingCharacter = ":";
-const prefix = "bull:html_parsing:";
+const prefix = "bull:html_parsing";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -36,11 +36,14 @@ app.use(bodyParser.json()); // parse application/json
 app.use(express.static(`${__dirname}/build/`));
 
 // to allow webpack server app access from another PORT
-/* app.use(function (req, res, next) {
+app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
   next();
-}); */
+});
 
 const mLabURL =
   "mongodb://akotlov:asyncjobqueue@ds151289.mlab.com:51289/async-job-queue";
@@ -366,27 +369,142 @@ app.get("/job/:id", (req, res) => {
 
 console.log(`Worker ${process.pid} started`);
 
-var cursor1 = "0";
+app.get("/api/jobs", (req, res) => {
+  let cursor = "0";
 
-redisClient.scan(cursor1, "MATCH", prefix + "*", "COUNT", "10", function(
-  err,
-  reply
-) {
-  if (err) {
-    throw err;
-  }
-  cursor1 = reply[0];
-  if (cursor1 === "0") {
-    return console.log("Scan Complete");
-  } else {
-    // do your processing
-    // reply[1] is an array of matched keys.
-    console.log(reply[1]);
-    //return scan();
-  }
+  redisClient.scan(cursor, "MATCH", prefix + "*", "COUNT", "50", function(
+    err,
+    reply
+  ) {
+    if (err) {
+      console.error("getKeys", err);
+      return next(err);
+    }
+    cursor = reply[0];
+    if (cursor === "0") {
+      return console.log("Scan Complete");
+    } else {
+      console.log(sf('found {0} keys for "{1}"', reply[1].length, prefix));
+
+      var lookup = {};
+      var reducedKeys = [];
+      reply[1].forEach(function(key) {
+        var fullKey = key;
+        if (prefix) {
+          key = key.substr((prefix + foldingCharacter).length);
+        }
+        var parts = key.split(foldingCharacter);
+        var firstPrefix = parts[0];
+        if (lookup.hasOwnProperty(firstPrefix)) {
+          lookup[firstPrefix].count++;
+        } else {
+          lookup[firstPrefix] = {
+            attr: { id: firstPrefix },
+            count: parts.length === 1 ? 0 : 1
+          };
+          lookup[firstPrefix].fullKey = fullKey;
+          if (parts.length === 1) {
+            lookup[firstPrefix].leaf = true;
+          }
+          reducedKeys.push(lookup[firstPrefix]);
+        }
+      });
+      //console.log(reducedKeys);
+
+      reducedKeys.forEach(function(data) {
+        if (data.count === 0) {
+          data.data = data.attr.id;
+        } else {
+          data.data = data.attr.id + ":* (" + data.count + ")";
+          data.state = "closed";
+        }
+      });
+
+      async.forEachLimit(
+        reducedKeys,
+        10,
+        function(keyData, callback) {
+          if (keyData.leaf) {
+            redisClient.type(keyData.fullKey, function(err, type) {
+              if (err) {
+                return callback(err);
+              }
+              keyData.attr.rel = type;
+              var sizeCallback = function(err, count) {
+                if (err) {
+                  return callback(err);
+                } else {
+                  keyData.data += " (" + count + ")";
+                  callback();
+                }
+              };
+              if (type == "list") {
+                redisClient.llen(keyData.fullKey, sizeCallback);
+              } else if (type == "set") {
+                redisClient.scard(keyData.fullKey, sizeCallback);
+              } else if (type == "zset") {
+                redisClient.zcard(keyData.fullKey, sizeCallback);
+              } else {
+                callback();
+              }
+            });
+          } else {
+            callback();
+          }
+        },
+        function(err) {
+          if (err) {
+            console.error("getKeys", err);
+            return next(err);
+          }
+          reducedKeys = reducedKeys.sort(function(a, b) {
+            return a.data > b.data ? 1 : -1;
+          });
+          console.log(reducedKeys);
+          res.send(JSON.stringify(reducedKeys));
+        }
+      );
+    }
+    /*
+    cursor = reply[0];
+    if (cursor === "0") {
+      return console.log("Scan Complete");
+    } else {
+      console.log(reply[1]);
+      const jobs = JSON.stringify(reply[1]);
+      res.json(reply[1]);
+      //return scan();
+    }*/
+  });
 });
 
-var cursor2 = "0";
+app.get("/api/job/:id", (req, res) => {
+  const jobID = req.params.id;
+  console.log(jobID);
+
+  redisClient.hgetall(jobID, function(err, fieldsAndValues) {
+    if (err) {
+      console.error("getKeys", err);
+      return next(err);
+    }
+    console.log(fieldsAndValues);
+    var details = {
+      key: jobID,
+      type: "hash",
+      data: fieldsAndValues
+    };
+    /*cursor = reply[0];
+    if (cursor === "0") {
+      return console.log("Scan Complete");
+    } else {*/
+    // do your processing
+    // reply[1] is an array of matched keys.
+    res.json(details);
+    //return scan();
+  });
+});
+
+/*var cursor2 = "0";
 
 redisClient.zscan("bull:html_parsing:failed", cursor2, "COUNT", "10", function(
   err,
@@ -423,7 +541,7 @@ redisClient.hscan("bull:html_parsing:ByicbxkwW", cursor3, function(err, reply) {
     console.log(JSON.stringify(reply[1]));
     //return scan();
   }
-});
+});*/
 
 /*
 TODO:
