@@ -1,7 +1,3 @@
-/**
- * In this file, we create a React component
- * which incorporates components provided by Material-UI.
- */
 import React, { Component } from "react";
 import RaisedButton from "material-ui/RaisedButton";
 import Dialog from "material-ui/Dialog";
@@ -10,7 +6,6 @@ import FlatButton from "material-ui/FlatButton";
 import getMuiTheme from "material-ui/styles/getMuiTheme";
 import MuiThemeProvider from "material-ui/styles/MuiThemeProvider";
 import TextField from "material-ui/TextField";
-import CircularProgress from "material-ui/CircularProgress";
 
 import { Tabs, Tab } from "material-ui/Tabs";
 import {
@@ -150,7 +145,7 @@ class Main extends Component {
   };
 
   fetchAll = () => {
-    fetch("http://localhost:8080/api/jobs", {
+    fetch("/api/jobs", {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json; charset=UTF-8" // maybe no charset=UTF-8?
@@ -238,7 +233,7 @@ class Main extends Component {
       return { ...component.state, jobIDs: updated };
     }
 
-    fetch(`http://localhost:8080/api/job/${job}`, {
+    fetch(`/api/job/${job}`, {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json; charset=UTF-8" // maybe no charset=UTF-8?
@@ -282,7 +277,8 @@ class Main extends Component {
       <MuiThemeProvider muiTheme={muiTheme}>
         <div style={containerStyle.container}>
           <Tabs onChange={this.handleChange} value={this.state.slideIndex}>
-            <Tab label="" value={0} />
+            <Tab label="1" value={0} />
+            <Tab label="2" value={1} />
           </Tabs>
 
           <SwipeableViews
@@ -404,6 +400,47 @@ class Main extends Component {
                   </TableBody>
                 </Table>
               </Dialog>
+            </div>
+
+            <div
+              style={{ fontFamily: "Roboto, sans-serif" }}
+              style={styles.slide}
+            >
+              <Paper style={paperStyle} zDepth={1}>
+                {this.state.jobIDs.map(job =>
+                  <Card
+                    key={job.attr.id}
+                    style={{ marginTop: "12px" }}
+                    initiallyExpanded={false}
+                  >
+                    <CardHeader
+                      titleStyle={projectsCardTitleStyle2}
+                      title={job.attr.rel}
+                      subtitle={job.attr.id}
+                      actAsExpander
+                      showExpandableButton
+                    />
+
+                    <CardText expandable>
+                      {job.data}
+                      <br />
+                    </CardText>
+                    <CardActions expandable>
+                      <RaisedButton
+                        labelStyle={{ fontSize: "0.9em" }}
+                        primary
+                        onTouchTap={() => {
+                          this.checkJobStatus(job.fullKey);
+                        }}
+                        label="Check job status / results"
+                      >
+                        {" "}
+                      </RaisedButton>
+                      {job.status === "completed" ? <div /> : null}
+                    </CardActions>
+                  </Card>
+                )}
+              </Paper>
             </div>
           </SwipeableViews>
         </div>

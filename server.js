@@ -52,7 +52,7 @@ const localDB = "mongodb://localhost/htmlDB";
 // MongoDb default connection pool size is 5.
 mongoose.Promise = global.Promise; // this will supress depricarion warning.see https://github.com/Automattic/mongoose/issues/4291
 const promise = mongoose.connect(
-  localDB,
+  mLabURL,
   {
     useMongoClient: true
     /* other options */
@@ -371,8 +371,7 @@ console.log(`Worker ${process.pid} started`);
 
 app.get("/api/jobs", (req, res) => {
   let cursor = "0";
-
-  redisClient.scan(cursor, "MATCH", prefix + "*", "COUNT", "50", function(
+  redisClient.scan(cursor, "MATCH", prefix + ":*", "COUNT", "50", function(
     err,
     reply
   ) {
@@ -409,8 +408,6 @@ app.get("/api/jobs", (req, res) => {
           reducedKeys.push(lookup[firstPrefix]);
         }
       });
-      //console.log(reducedKeys);
-
       reducedKeys.forEach(function(data) {
         if (data.count === 0) {
           data.data = data.attr.id;
@@ -504,27 +501,48 @@ app.get("/api/job/:id", (req, res) => {
   });
 });
 
-/*var cursor2 = "0";
-
-redisClient.zscan("bull:html_parsing:failed", cursor2, "COUNT", "10", function(
-  err,
-  reply
-) {
-  if (err) {
-    throw err;
-  }
-  console.log(reply);
-  cursor2 = reply[0];
-  if (cursor2 === "0") {
-    return console.log("Scan Complete");
-  } else {
-    // do your processing
-    // reply[1] is an array of matched keys.
-    console.log(JSON.stringify(reply[1]));
-    //return scan();
-  }
+app.get("/api/all_jobs", (req, res) => {
+  async.parallel(
+    [
+      function(callback) {
+        // Task 1
+        let cursor = "0";
+        redisClient.zscan("bull:html_parsing:failed", cursor, function(
+          err,
+          reply
+        ) {
+          if (err) {
+            callback(err);
+          }
+          console.log(JSON.stringify(reply[1]));
+          callback(null, reply[1]);
+        });
+      },
+      function(callback) {
+        // Task 2
+        let cursor = "0";
+        redisClient.zscan("bull:html_parsing:completed", cursor, function(
+          err,
+          reply
+        ) {
+          if (err) {
+            callback(err);
+          }
+          console.log(JSON.stringify(reply[1]));
+          callback(null, reply[1]);
+        });
+      }
+    ],
+    (err, results) => {
+      if (err) return handleError(err); // If an error occurred, we let express handle it by calling the `next` function
+      console.log("async.parallel final callback with results ", results);
+    }
+  );
 });
 
+var multi = redisClient.multi();
+
+/*
 var cursor3 = "0";
 
 redisClient.hscan("bull:html_parsing:ByicbxkwW", cursor3, function(err, reply) {
