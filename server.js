@@ -3,18 +3,14 @@ const numCPUs = require("os").cpus().length;
 
 const express = require("express");
 const request = require("request");
-const shortid = require("shortid");
 const bodyParser = require("body-parser");
-const async = require("async");
 const Job = require("./models/Job");
-const urlExists = require("url-exists");
 // const url = require('url');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json()); // parse application/json
+app.use(bodyParser.json());
 app.use(express.static(`${__dirname}/build/`));
-
 // to allow webpack server app access from another PORT
 app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
@@ -24,20 +20,23 @@ app.use(function(req, res, next) {
   );
   next();
 });
+app.use(logErrors);
+app.use(errorHandler);
 
 require("./api/api")(app);
 require("./api/promise")(app);
+require("./api/mongo")(app);
 
-function handleError(err, jobID) {
-  console.log("handleError ", err);
-  console.log("handleError ", err.message);
-  // console.log('Job ID is : ', jobID);
+function logErrors(err, req, res, next) {
+  console.error(err.stack);
+  next(err);
 }
-
-// Generic error handler used by all endpoints.
-function handleError1(res, reason, message, code) {
-  console.log(`ERROR: ${reason}`);
-  res.status(code || 500).json({ error: message });
+function errorHandler(err, req, res, next) {
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500);
+  res.render("error", { error: err });
 }
 
 process.on("uncaughtException", err => {
@@ -67,58 +66,7 @@ app.get('/', (req, res) => {
   }); */
 
 // }
-app.get("/jobs", (req, res) => {
-  const limit = 200;
-
-  distinct = function(items) {
-    var hash = {};
-    items.forEach(function(item) {
-      hash[item] = true;
-    });
-    var result = [];
-    for (var item in hash) {
-      result.push(item);
-    }
-    return result;
-  };
-
-  redisClient.keys(`${prefix}*`, (err, keys) => {
-    if (err) {
-      console.error("getKeys", err);
-      return next(err);
-    }
-    console.log(sf('found {0} keys for "{1}"', keys.length, prefix));
-
-    if (keys.length > 1) {
-      keys = distinct(
-        keys.map(function(key) {
-          var idx = key.indexOf(foldingCharacter, prefix.length);
-          if (idx > 0) {
-            return key.substring(0, idx + 1);
-          }
-          return key;
-        })
-      );
-    }
-
-    if (keys.length > limit) {
-      keys = keys.slice(0, limit);
-    }
-
-    keys = keys.sort();
-    //res.send(JSON.stringify(keys));
-    console.log(keys);
-    res.send(JSON.stringify(keys));
-  });
-
-  /*Job.find({})
-    .select("-htmlJSON") // we exclude this field because of parsed Json size
-    .exec((err, jobs) => {
-      if (err)
-        return handleError1(res, err.message, "Failed to get submitted jobs.");
-      return res.status(200).json(jobs);
-    });*/
-});
+console.log(process.env);
 
 app.get("/job/:id", (req, res) => {
   // console.log(req.params.id);
@@ -132,26 +80,17 @@ app.get("/job/:id", (req, res) => {
   });
 });
 
-//console.log(`Worker ${process.pid} started`);
 /*
-var cursor3 = "0";
-
-redisClient.hscan("bull:html_parsing:ByicbxkwW", cursor3, function(err, reply) {
-  if (err) {
-    throw err;
-  }
-  console.log(reply);
-  cursor3 = reply[0];
-  if (cursor2 === "0") {
-    return console.log("Scan Complete");
-  } else {
-    // do your processing
-    // reply[1] is an array of matched keys.
-    console.log(JSON.stringify(reply[1]));
-    //return scan();
-  }
-});*/
-
+let result = "";
+function test(el) {
+  if (el === 0) return;
+  let char = "*";
+  el > 1 ? console.log((result += char)) : console.log((result += char + "/"));
+  test(el - 1);
+}
+test(3);
+*/
+//console.log(`Worker ${process.pid} started`);
 /*
 TODO:
 -check if database is available before we init our app

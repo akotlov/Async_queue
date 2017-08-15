@@ -134,3 +134,5 @@ htmlParseQueue.process((job, done) => {
     }
   );
 });
+
+module.exports = htmlParseQueue;

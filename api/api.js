@@ -1,6 +1,9 @@
 const redisClient = require("./redis");
 const async = require("async");
 const sf = require("sf");
+const urlExists = require("url-exists");
+const shortid = require("shortid");
+const htmlParseQueue = require("./job_queue");
 
 const foldingCharacter = ":";
 const prefix = "bull:html_parsing";
@@ -10,6 +13,7 @@ module.exports = function(app) {
   app.get("/api/job/:id", getJobDetails);
   app.get("/api/all_jobs", getAllJobs);
   app.post("/create_job_async/*", createJob);
+  app.get("/jobs", _getJobs);
 };
 
 function getJobs(req, res, next) {
@@ -177,7 +181,7 @@ function getAllJobs(req, res, next) {
       }
     ],
     (err, results) => {
-      if (err) return handleError(err); // If an error occurred, we let express handle it by calling the `next` function
+      if (err) return next(err); // If an error occurred, we let express handle it by calling the `next` function
       console.log("async.parallel final callback with results ", results);
     }
   );
@@ -218,9 +222,81 @@ function createJob(req, res, next) {
       }
     ],
     (err, result) => {
-      if (err) handleError(err);
+      if (err) next(err);
       // console.log('Final create_job_async callback return status: ', result.msg);
       res.status(result.status).json(result.payload);
     }
   );
 }
+
+function _getJobs(req, res, next) {
+  const limit = 200;
+
+  distinct = function(items) {
+    var hash = {};
+    items.forEach(function(item) {
+      hash[item] = true;
+    });
+    var result = [];
+    for (var item in hash) {
+      result.push(item);
+    }
+    return result;
+  };
+
+  redisClient.keys(`${prefix}*`, (err, keys) => {
+    if (err) {
+      console.error("getKeys", err);
+      return next(err);
+    }
+    console.log(sf('found {0} keys for "{1}"', keys.length, prefix));
+
+    if (keys.length > 1) {
+      keys = distinct(
+        keys.map(function(key) {
+          var idx = key.indexOf(foldingCharacter, prefix.length);
+          if (idx > 0) {
+            return key.substring(0, idx + 1);
+          }
+          return key;
+        })
+      );
+    }
+
+    if (keys.length > limit) {
+      keys = keys.slice(0, limit);
+    }
+
+    keys = keys.sort();
+    //res.send(JSON.stringify(keys));
+    console.log(keys);
+    res.send(JSON.stringify(keys));
+  });
+
+  /*Job.find({})
+        .select("-htmlJSON") // we exclude this field because of parsed Json size
+        .exec((err, jobs) => {
+          if (err)
+            return handleError1(res, err.message, "Failed to get submitted jobs.");
+          return res.status(200).json(jobs);
+        });*/
+}
+
+/*
+var cursor3 = "0";
+
+redisClient.hscan("bull:html_parsing:ByicbxkwW", cursor3, function(err, reply) {
+  if (err) {
+    throw err;
+  }
+  console.log(reply);
+  cursor3 = reply[0];
+  if (cursor2 === "0") {
+    return console.log("Scan Complete");
+  } else {
+    // do your processing
+    // reply[1] is an array of matched keys.
+    console.log(JSON.stringify(reply[1]));
+    //return scan();
+  }
+});*/

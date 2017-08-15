@@ -52,8 +52,12 @@ function Promise(fn) {
 
       return;
     }
-
-    var ret = handlerCallback(value);
+    try {
+      var ret = handlerCallback(value);
+    } catch (e) {
+      handler.reject(e);
+      return;
+    }
     handler.resolve(ret);
   }
 
@@ -105,3 +109,16 @@ function usePromise(req, res, next) {
       res.send(value);
     });
 }
+
+/*
+Why is this? Since the unhandled exception took place in our callback to then(), 
+it is being caught inside of handle(). This causes handle() to reject the promise t
+hat then() returned, not the promise we are already responding to, as that promise 
+has already properly resolved.
+
+Always remember, inside of then()‘s callback, the promise you are responding to has
+ already resolved. The result of your callback will have no influence on this promise
+
+ Promises always require at least one more iteration of the event loop to resolve. 
+ This is not necessarily true of the standard callback approach.
+*/
