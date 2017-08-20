@@ -198,9 +198,9 @@ class Main extends Component {
         .then(parseJSON)
         .then(data => {
           console.log("request succeeded with JSON response", data);
-          component.setState(prevState => ({
+          /*component.setState(prevState => ({
             jobIDs: prevState.jobIDs.concat(data)
-          }));
+          }));*/
         })
         .catch(error => {
           console.log("request failed", error);

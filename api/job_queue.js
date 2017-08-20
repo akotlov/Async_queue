@@ -1,4 +1,10 @@
 const Queue = require("bull");
+const async = require("async");
+const request = require("request");
+const urlExists = require("url-exists");
+const shortid = require("shortid");
+const Job = require("../models/Job");
+
 // const html2json = require('html2json').html2json;
 // const json2html = require('html2json').json2html;
 const himalaya = require("himalaya");
@@ -13,6 +19,16 @@ htmlParseQueue.on("completed", (job, result) => {
 
 htmlParseQueue.on("failed", (job, error) => {
   handleError(error, job.id);
+});
+
+htmlParseQueue.process((job, done) => {
+  console.log("Job processing : ", job.id);
+  /*request(job.data.url, (error, response, body) => {
+    if (error) done(error);
+    console.log("statusCode:", response && response.statusCode);
+    done(null, response.statusCode);
+  });*/
+  process(job, done);
 });
 
 /* function parseHtml(html, done) {
@@ -70,12 +86,7 @@ function bytesToSize(bytes) {
   return `${(bytes / 1024 ** i).toFixed(1)} ${sizes[i]}`;
 }
 
-htmlParseQueue.process((job, done) => {
-  // console.log('Job processing by worker', cluster.worker.id);
-  /* request(job.data.url, (error, response, body) => {
-    if (error) done(error);
-    console.log('statusCode:', response && response.statusCode);
-  }); */
+function process(job, done) {
   const maxSize = 1048576;
   request(
     {
@@ -104,11 +115,17 @@ htmlParseQueue.process((job, done) => {
           body += data;
         });
         res.on("end", () => {
-          // console.log(`BODY: ${body}`);
           // const l = (body.length / 1024).toFixed(3);
           const l = bytesToSize(body.length);
           console.log("Resource lenght is", l);
-          const parsedBody = parseHtml(body);
+
+          let parsedBody;
+          try {
+            parsedBody = parseHtml(body);
+            console.log("htmlParseQueue parsedBody :", parsedBody);
+          } catch (e) {
+            done(new Error(e));
+          }
           // const json = himalaya.parse(body);
           const jobResult = new Job({
             job_id: job.id,
@@ -122,7 +139,7 @@ htmlParseQueue.process((job, done) => {
           });
           jobResult.save((error, jresult) => {
             if (err) done(new Error(error));
-            // console.log('saved ', jresult.job_id);
+            console.log("saved ", jresult.job_id);
             return done(null, jresult.url);
           });
         });
@@ -133,6 +150,57 @@ htmlParseQueue.process((job, done) => {
       }
     }
   );
-});
+}
 
-module.exports = htmlParseQueue;
+function createJob(req, res, next) {
+  const job_url = req.params[0];
+  async.waterfall(
+    [
+      // Task 1
+      callback => {
+        urlExists(job_url, (err, exists) => {
+          callback(null, exists);
+        });
+      },
+      // Task 2
+      (exists, callback) => {
+        if (exists) {
+          const jobID = shortid.generate();
+          const size = bytesToSize(1000344);
+          console.log(size);
+          htmlParseQueue
+            .add({ url: job_url }, { jobId: jobID })
+            .then(function(job) {
+              console.log(
+                "Job ID: " + job.id + " Data: " + JSON.stringify(job.data)
+              );
+            });
+
+          const result = {
+            msg: "Task validated and pushed into a queue",
+            status: 200,
+            payload: jobID
+          };
+          callback(null, result);
+        } else {
+          // if URL is not "live" or not returned any HTML to parse notify a user
+          const result = {
+            msg: "Not a valid url or no HTML returned",
+            status: 406,
+            payload: "Not a valid url or no HTML returned"
+          };
+          callback(null, result);
+        }
+      }
+    ],
+    (err, result) => {
+      if (err) next(err);
+      // console.log('Final create_job_async callback return status: ', result.msg);
+      res.status(result.status).json(result.payload);
+    }
+  );
+}
+
+module.exports = function(app) {
+  app.post("/create_job_async/*", createJob);
+};

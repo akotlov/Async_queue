@@ -1,9 +1,6 @@
 const redisClient = require("./redis");
 const async = require("async");
 const sf = require("sf");
-const urlExists = require("url-exists");
-const shortid = require("shortid");
-const htmlParseQueue = require("./job_queue");
 
 const foldingCharacter = ":";
 const prefix = "bull:html_parsing";
@@ -12,7 +9,6 @@ module.exports = function(app) {
   app.get("/api/jobs", getJobs);
   app.get("/api/job/:id", getJobDetails);
   app.get("/api/all_jobs", getAllJobs);
-  app.post("/create_job_async/*", createJob);
   app.get("/jobs", _getJobs);
 };
 
@@ -29,6 +25,7 @@ function getJobs(req, res, next) {
     cursor = reply[0];
     if (cursor === "0") {
       return console.log("Scan Complete");
+      res.send("No records found");
     } else {
       console.log(sf('found {0} keys for "{1}"', reply[1].length, prefix));
 
@@ -104,7 +101,7 @@ function getJobs(req, res, next) {
           reducedKeys = reducedKeys.sort(function(a, b) {
             return a.data > b.data ? 1 : -1;
           });
-          console.log(reducedKeys);
+          //console.log(reducedKeys);
           res.send(JSON.stringify(reducedKeys));
         }
       );
@@ -183,48 +180,6 @@ function getAllJobs(req, res, next) {
     (err, results) => {
       if (err) return next(err); // If an error occurred, we let express handle it by calling the `next` function
       console.log("async.parallel final callback with results ", results);
-    }
-  );
-}
-
-function createJob(req, res, next) {
-  const job_url = req.params[0];
-  async.waterfall(
-    [
-      // Task 1
-      callback => {
-        urlExists(job_url, (err, exists) => {
-          callback(null, exists);
-        });
-      },
-      // Task 2
-      (exists, callback) => {
-        // console.log(exists);
-        if (exists) {
-          const jobID = shortid.generate();
-          htmlParseQueue.add({ url: job_url }, { jobId: jobID });
-
-          const result = {
-            msg: "Task validated and pushed into a queue",
-            status: 200,
-            payload: jobID
-          };
-          callback(null, result);
-        } else {
-          // if URL is not "live" or not returned any HTML to parse notify a user
-          const result = {
-            msg: "Not a valid url or no HTML returned",
-            status: 406,
-            payload: "Not a valid url or no HTML returned"
-          };
-          callback(null, result);
-        }
-      }
-    ],
-    (err, result) => {
-      if (err) next(err);
-      // console.log('Final create_job_async callback return status: ', result.msg);
-      res.status(result.status).json(result.payload);
     }
   );
 }

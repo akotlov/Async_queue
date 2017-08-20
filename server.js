@@ -1,12 +1,10 @@
 const cluster = require("cluster");
-const numCPUs = require("os").cpus().length;
+//const numCPUs = require("os").cpus().length;
+const numCPUs = 2;
 
 const express = require("express");
-const request = require("request");
 const bodyParser = require("body-parser");
-const Job = require("./models/Job");
 // const url = require('url');
-
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
@@ -23,9 +21,10 @@ app.use(function(req, res, next) {
 app.use(logErrors);
 app.use(errorHandler);
 
+require("./api/mongo")(app);
 require("./api/api")(app);
 require("./api/promise")(app);
-require("./api/mongo")(app);
+require("./api/job_queue")(app);
 
 function logErrors(err, req, res, next) {
   console.error(err.stack);
@@ -39,34 +38,33 @@ function errorHandler(err, req, res, next) {
   res.render("error", { error: err });
 }
 
-process.on("uncaughtException", err => {
+console.log(process.env);
+
+/*process.on("uncaughtException", err => {
   console.error(`Uncaught exception: ${err.stack}`);
   process.exit(1);
-});
+});*/
 
-/* if (cluster.isMaster && numCPUs > 1) {
+/*if (cluster.isMaster && numCPUs > 1) {
   console.log(`Master ${process.pid} is running`);
   for (let i = 0; i < numCPUs; i++) {
     cluster.fork();
   }
-  cluster.on('exit', (worker, code, signal) => {
+  cluster.on("exit", (worker, code, signal) => {
     console.log(`worker ${worker.process.pid} died`);
     // Replace the dead worker,
     cluster.fork();
   });
 
-  cluster.on('online', (worker) => {
+  cluster.on("online", worker => {
     console.log(`Worker ${worker.process.pid} is online`);
   });
-} else { */
+} else {
+  app.post("/create_job_async/*", createJob);
+  require("./api/mongo")(app);
+}*/
 
-/*
-app.get('/', (req, res) => {
-    res.send('Hello World!');
-  }); */
-
-// }
-console.log(process.env);
+//app.post("/create_job_async/*", createJob);
 
 app.get("/job/:id", (req, res) => {
   // console.log(req.params.id);
