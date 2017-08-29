@@ -9,7 +9,7 @@ mongoose.Promise = global.Promise; // this will supress depricarion warning.see 
 
 function openConnection(app) {
   const mongoClient = mongoose.connect(
-    mLabURL,
+    localDB,
     {
       useMongoClient: true
       /* other options */

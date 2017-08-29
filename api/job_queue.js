@@ -10,11 +10,29 @@ const Job = require("../models/Job");
 const himalaya = require("himalaya");
 const toHTML = require("himalaya/translate").toHTML;
 const htmlparser = require("htmlparser2");
+const cheerio = require("cheerio");
 
 const htmlParseQueue = new Queue("html_parsing", "redis://127.0.0.1:6379");
 
 htmlParseQueue.on("completed", (job, result) => {
   console.log("completed job: ", job.id, result);
+  // const json = himalaya.parse(body);
+  const jobResult = new Job({
+    job_id: job.id,
+    url: job.data.url,
+    created_at: Date.now(),
+    size: result.dataLength,
+    completed_at: Date.now(),
+    links: result.links,
+    linksCount: result.links.length,
+    htmlString: null,
+    status: "completed",
+    error_msg: null
+  });
+  jobResult.save((error, jresult) => {
+    if (error) logErrors(new Error(error));
+    console.log("saved ", jresult.job_id);
+  });
 });
 
 htmlParseQueue.on("failed", (job, error) => {
@@ -23,11 +41,6 @@ htmlParseQueue.on("failed", (job, error) => {
 
 htmlParseQueue.process((job, done) => {
   console.log("Job processing : ", job.id);
-  /*request(job.data.url, (error, response, body) => {
-    if (error) done(error);
-    console.log("statusCode:", response && response.statusCode);
-    done(null, response.statusCode);
-  });*/
   process(job, done);
 });
 
@@ -88,6 +101,7 @@ function bytesToSize(bytes) {
 
 function process(job, done) {
   const maxSize = 1048576;
+  console.log(bytesToSize(maxSize));
   request(
     {
       url: job.data.url,
@@ -118,31 +132,35 @@ function process(job, done) {
           // const l = (body.length / 1024).toFixed(3);
           const l = bytesToSize(body.length);
           console.log("Resource lenght is", l);
-
-          let parsedBody;
-          try {
+          //let parsedBody;
+          let result = {
+            url: job.data.url,
+            dataLength: l,
+            links: []
+          };
+          /*try {
             parsedBody = parseHtml(body);
             console.log("htmlParseQueue parsedBody :", parsedBody);
+            return done(null, parsedBody);
           } catch (e) {
             done(new Error(e));
-          }
-          // const json = himalaya.parse(body);
-          const jobResult = new Job({
-            job_id: job.id,
-            url: job.data.url,
-            created_at: Date.now(),
-            size: l,
-            htmlJSON: parsedBody,
-            htmlString: null,
-            status: "completed",
-            error_msg: null
+          }*/
+          $ = cheerio.load(body);
+          let links = $("a"); //jquery get all hyperlinks
+          $(links).each(function(i, link) {
+            //console.log($(link).text() + ":\n  " + $(link).attr("href"));
+            //console.log($(link).attr("href"));
+            urlExists($(link).attr("href"), (err, exists) => {
+              if (exists) {
+                result.links.push($(link).attr("href"));
+                console.log($(link).attr("href"));
+              }
+            });
           });
-          jobResult.save((error, jresult) => {
-            if (err) done(new Error(error));
-            console.log("saved ", jresult.job_id);
-            return done(null, jresult.url);
-          });
+
+          done(null, result);
         });
+
         res.on("error", error => {
           done(new Error(error));
         });
@@ -166,8 +184,6 @@ function createJob(req, res, next) {
       (exists, callback) => {
         if (exists) {
           const jobID = shortid.generate();
-          const size = bytesToSize(1000344);
-          console.log(size);
           htmlParseQueue
             .add({ url: job_url }, { jobId: jobID })
             .then(function(job) {

@@ -1,6 +1,6 @@
 const cluster = require("cluster");
 //const numCPUs = require("os").cpus().length;
-const numCPUs = 2;
+const numCPUs = 1;
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -21,10 +21,14 @@ app.use(function(req, res, next) {
 app.use(logErrors);
 app.use(errorHandler);
 
-require("./api/mongo")(app);
+//require("./api/mongo")(app);
 require("./api/api")(app);
 require("./api/promise")(app);
 require("./api/job_queue")(app);
+
+app.get("/test", function(req, res) {
+  res.send("Hello World!");
+});
 
 function logErrors(err, req, res, next) {
   console.error(err.stack);
@@ -38,14 +42,14 @@ function errorHandler(err, req, res, next) {
   res.render("error", { error: err });
 }
 
-console.log(process.env);
+//console.log(process.env);
 
 /*process.on("uncaughtException", err => {
   console.error(`Uncaught exception: ${err.stack}`);
   process.exit(1);
 });*/
 
-/*if (cluster.isMaster && numCPUs > 1) {
+if (cluster.isMaster && numCPUs > 1) {
   console.log(`Master ${process.pid} is running`);
   for (let i = 0; i < numCPUs; i++) {
     cluster.fork();
@@ -60,11 +64,8 @@ console.log(process.env);
     console.log(`Worker ${worker.process.pid} is online`);
   });
 } else {
-  app.post("/create_job_async/*", createJob);
   require("./api/mongo")(app);
-}*/
-
-//app.post("/create_job_async/*", createJob);
+}
 
 app.get("/job/:id", (req, res) => {
   // console.log(req.params.id);
@@ -78,6 +79,19 @@ app.get("/job/:id", (req, res) => {
   });
 });
 
+function AsyncForEach(arr, cb) {
+  arr.forEach(i => {
+    setTimeout(() => {
+      cb(i);
+    }, 0);
+    //cb(i);
+  });
+}
+
+AsyncForEach([1, 2, 3], function(i) {
+  //console.log(i);
+  return i;
+});
 /*
 let result = "";
 function test(el) {
@@ -118,3 +132,88 @@ it will prevent browser from displaying HTML in iframe.
 1.Massdrop html content wont display in iframe because of 'x-frame-options': 'SAMEORIGIN' 
 option in header.  
  */
+
+/*
+ // HOW and WHY the timers implementation works the way it does.
+//
+// Timers are crucial to Node.js. Internally, any TCP I/O connection creates a
+// timer so that we can time out of connections. Additionally, many user
+// libraries and applications also use timers. As such there may be a
+// significantly large amount of timeouts scheduled at any given time.
+// Therefore, it is very important that the timers implementation is performant
+// and efficient.
+//
+// Note: It is suggested you first read though the lib/internal/linkedlist.js
+// linked list implementation, since timers depend on it extensively. It can be
+// somewhat counter-intuitive at first, as it is not actually a class. Instead,
+// it is a set of helpers that operate on an existing object.
+//
+// In order to be as performant as possible, the architecture and data
+// structures are designed so that they are optimized to handle the following
+// use cases as efficiently as possible:
+
+// - Adding a new timer. (insert)
+// - Removing an existing timer. (remove)
+// - Handling a timer timing out. (timeout)
+//
+// Whenever possible, the implementation tries to make the complexity of these
+// operations as close to constant-time as possible.
+// (So that performance is not impacted by the number of scheduled timers.)
+//
+// Object maps are kept which contain linked lists keyed by their duration in
+// milliseconds.
+// The linked lists within also have some meta-properties, one of which is a
+// TimerWrap C++ handle, which makes the call after the duration to process the
+// list it is attached to.
+//
+//
+// ╔════ > Object Map
+// ║
+// ╠══
+// ║ refedLists: { '40': { }, '320': { etc } } (keys of millisecond duration)
+// ╚══          ┌─────────┘
+//              │
+// ╔══          │
+// ║ TimersList { _idleNext: { }, _idlePrev: (self), _timer: (TimerWrap) }
+// ║         ┌────────────────┘
+// ║    ╔══  │                              ^
+// ║    ║    { _idleNext: { },  _idlePrev: { }, _onTimeout: (callback) }
+// ║    ║      ┌───────────┘
+// ║    ║      │                                  ^
+// ║    ║      { _idleNext: { etc },  _idlePrev: { }, _onTimeout: (callback) }
+// ╠══  ╠══
+// ║    ║
+// ║    ╚════ >  Actual JavaScript timeouts
+// ║
+// ╚════ > Linked List
+//
+//
+// With this, virtually constant-time insertion (append), removal, and timeout
+// is possible in the JavaScript layer. Any one list of timers is able to be
+// sorted by just appending to it because all timers within share the same
+// duration. Therefore, any timer added later will always have been scheduled to
+// timeout later, thus only needing to be appended.
+// Removal from an object-property linked list is also virtually constant-time
+// as can be seen in the lib/internal/linkedlist.js implementation.
+// Timeouts only need to process any timers due to currently timeout, which will
+// always be at the beginning of the list for reasons stated above. Any timers
+// after the first one encountered that does not yet need to timeout will also
+// always be due to timeout at a later time.
+//
+// Less-than constant time operations are thus contained in two places:
+// TimerWrap's backing libuv timers implementation (a performant heap-based
+// queue), and the object map lookup of a specific list by the duration of
+// timers within (or creation of a new list).
+// However, these operations combined have shown to be trivial in comparison to
+// other alternative timers architectures.
+
+
+// Object maps containing linked lists of timers, keyed and sorted by their
+// duration in milliseconds.
+//
+// The difference between these two objects is that the former contains timers
+// that will keep the process open if they are the only thing left, while the
+// latter will not.
+//
+// - key = time in milliseconds
+// - value = linked list*/
