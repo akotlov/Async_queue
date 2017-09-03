@@ -2,6 +2,15 @@ const cluster = require("cluster");
 //const numCPUs = require("os").cpus().length;
 const numCPUs = 1;
 
+const winston = require("winston");
+const logger = new winston.Logger({
+  transports: [
+    // colorize the output to the console
+    new winston.transports.Console({ colorize: true })
+  ]
+});
+logger.level = "debug";
+
 const express = require("express");
 const bodyParser = require("body-parser");
 // const url = require('url');

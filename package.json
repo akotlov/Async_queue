@@ -61,7 +61,8 @@
     "transfer-webpack-plugin": "^0.1.4",
     "url-exists": "^1.0.3",
     "webpack": "^2.4.1",
-    "webpack-dev-server": "^2.4.2"
+    "webpack-dev-server": "^2.4.2",
+    "winston": "^2.3.1"
   },
   "engines": {
     "node": "8.2.x",

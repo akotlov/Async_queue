@@ -36,7 +36,8 @@ htmlParseQueue.on("completed", (job, result) => {
 });
 
 htmlParseQueue.on("failed", (job, error) => {
-  handleError(error, job.id);
+  //handleError(error, job.id);
+  console.log("failed job", error);
 });
 
 htmlParseQueue.process((job, done) => {
@@ -101,29 +102,42 @@ function bytesToSize(bytes) {
 
 function process(job, done) {
   const maxSize = 1048576;
-  console.log(bytesToSize(maxSize));
-  request(
-    {
-      url: job.data.url,
-      method: "HEAD"
-    },
-    (err, headRes) => {
-      const size = headRes.headers["content-length"];
-      if (size > maxSize) {
-        console.log(`Resource size exceeds limit (${size})`);
-        done(new Error("Resource stream exceeded limit"));
-      } else {
+  console.log(bytesToSize("Url content size limit set to: ", maxSize));
+
+  async.waterfall(
+    [
+      //Task 1
+      callback => {
+        request(
+          {
+            url: job.data.url,
+            method: "HEAD"
+          },
+          (err, headRes) => {
+            const size = headRes.headers["content-length"];
+            if (size > maxSize) {
+              console.log(`Resource size exceeds limit (${size})`);
+              //done(new Error("Resource stream exceeded limit"));
+              callback(new Error("Resource stream exceeded limit"));
+            } else {
+              callback(null, job.data.url);
+            }
+          }
+        );
+      },
+      // Task 2
+      (url, callback) => {
         let dataSize = 0;
         let body = "";
 
-        const res = request({ url: job.data.url });
+        const res = request({ url: url });
 
         res.on("data", data => {
           dataSize += data.length;
 
           if (dataSize > maxSize) {
             console.log(`Resource stream exceeded limit (${dataSize})`);
-            done(new Error("Resource stream exceeded limit"));
+            callback(new Error("Resource stream exceeded limit"));
             res.abort(); // Abort the response (close and cleanup the stream)
           }
           body += data;
@@ -133,32 +147,63 @@ function process(job, done) {
           const l = bytesToSize(body.length);
           console.log("Resource lenght is", l);
           //let parsedBody;
-          let result = {
-            url: job.data.url,
+          let jobResult = {
+            url: url,
             dataLength: l,
             links: []
           };
+          let foundLinks = [];
           /*try {
-            parsedBody = parseHtml(body);
-            console.log("htmlParseQueue parsedBody :", parsedBody);
-            return done(null, parsedBody);
-          } catch (e) {
-            done(new Error(e));
-          }*/
+          parsedBody = parseHtml(body);
+          console.log("htmlParseQueue parsedBody :", parsedBody);
+          return done(null, parsedBody);
+        } catch (e) {
+          done(new Error(e));
+        }*/
           $ = cheerio.load(body);
           let links = $("a"); //jquery get all hyperlinks
           $(links).each(function(i, link) {
             //console.log($(link).text() + ":\n  " + $(link).attr("href"));
             //console.log($(link).attr("href"));
-            urlExists($(link).attr("href"), (err, exists) => {
-              if (exists) {
-                result.links.push($(link).attr("href"));
-                console.log($(link).attr("href"));
-              }
-            });
+            foundLinks.push($(link).attr("href"));
           });
+          console.log(foundLinks.length);
 
-          done(null, result);
+          /*function isValidUrl(url, cb) {
+            urlExists(url, (err, exists) => {
+              if (exists) {
+                cb(null, url);
+              }
+              cb(null, false);
+            });
+          }*/
+
+          /*function validate(arr, cb) {
+            let validLinks = [];
+
+            for (let i = 0; i < arr.length; i++) {
+              console.log("outer i ", i);
+              isValidUrl(arr[i], (err, result) => {
+                console.log("inner i ", i);
+                if (result === false) return;
+                validLinks.push(result);
+                console.log("validLinks inside for loop ", validLinks);
+                //if (i === arr.length) cb(null, validLinks);
+              });
+            }
+          }
+
+          validate(foundLinks, (err, resultArr) => {
+            console.log("valida callback result ", resultArr);
+            jobResult.links = resultArr;
+            console.log(jobResult);
+            callback(null, jobResult);
+          });*/
+
+          async.filter(foundLinks, urlExists, function(err, validLinks) {
+            jobResult.links = validLinks;
+            callback(null, jobResult);
+          });
         });
 
         res.on("error", error => {
@@ -166,6 +211,11 @@ function process(job, done) {
         });
         res.end();
       }
+    ],
+    (err, jobResult) => {
+      if (err) done(err);
+      done(null, jobResult);
+      //console.log("Final create_job_async callback return status: ", result);
     }
   );
 }
