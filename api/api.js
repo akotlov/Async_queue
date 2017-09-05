@@ -227,14 +227,6 @@ function _getJobs(req, res, next) {
     console.log(keys);
     res.send(JSON.stringify(keys));
   });
-
-  /*Job.find({})
-        .select("-htmlJSON") // we exclude this field because of parsed Json size
-        .exec((err, jobs) => {
-          if (err)
-            return handleError1(res, err.message, "Failed to get submitted jobs.");
-          return res.status(200).json(jobs);
-        });*/
 }
 
 /*

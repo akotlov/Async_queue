@@ -102,7 +102,7 @@ function bytesToSize(bytes) {
 
 function process(job, done) {
   const maxSize = 1048576;
-  console.log(bytesToSize("Url content size limit set to: ", maxSize));
+  console.log("Url content size limit set to: ", bytesToSize(maxSize));
 
   async.waterfall(
     [

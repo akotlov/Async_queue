@@ -10,6 +10,7 @@ const logger = new winston.Logger({
   ]
 });
 logger.level = "debug";
+const Job = require("./models/Job");
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -58,6 +59,15 @@ function errorHandler(err, req, res, next) {
   process.exit(1);
 });*/
 
+/*if you have to debug a huge codebase, and you don't know which Promise can 
+potentially hide an issue, you can use the unhandledRejection hook. It will print out all u
+nhandled Promise rejections.
+
+process.on('unhandledRejection', (err) => {  
+  console.log(err)
+})
+*/
+
 if (cluster.isMaster && numCPUs > 1) {
   console.log(`Master ${process.pid} is running`);
   for (let i = 0; i < numCPUs; i++) {
@@ -86,6 +96,15 @@ app.get("/job/:id", (req, res) => {
       res.json(job);
     }
   });
+});
+
+app.get("/records", (req, res) => {
+  Job.find({})
+    //.select("-htmlJSON") // we exclude this field because of parsed Json size
+    .exec((err, jobs) => {
+      if (err) return next(err);
+      return res.status(200).json(jobs);
+    });
 });
 
 function AsyncForEach(arr, cb) {

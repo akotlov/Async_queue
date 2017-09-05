@@ -119,7 +119,8 @@ class Main extends Component {
       htmlContent: null,
       error_msg: null,
       open: false,
-      dialogTitle: null
+      dialogTitle: null,
+      jobResults: []
     };
   }
 
@@ -162,6 +163,32 @@ class Main extends Component {
         console.log(data);
         this.setState(prevState => ({
           jobIDs: prevState.jobIDs.concat(data)
+        }));
+        // this.state.jobIDs.push(data)
+      })
+      .catch(err => {
+        console.log(err);
+      });
+  };
+
+  fetchDBrecords = () => {
+    fetch("/records", {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=UTF-8" // maybe no charset=UTF-8?
+      },
+      method: "GET"
+    })
+      // .then(resp => resp.text())
+      .then(resp => resp.json())
+      .then(data => {
+        if (data.error) throw data.error.message || "Unable to search";
+        return data;
+      })
+      .then(data => {
+        console.log(data);
+        this.setState(prevState => ({
+          jobResults: prevState.jobResults.concat(data)
         }));
         // this.state.jobIDs.push(data)
       })
@@ -407,22 +434,27 @@ class Main extends Component {
               style={styles.slide}
             >
               <Paper style={paperStyle} zDepth={1}>
-                {this.state.jobIDs.map(job =>
+                <RaisedButton
+                  label="Get mongo records"
+                  primary
+                  onClick={this.fetchDBrecords}
+                />
+                {this.state.jobResults.map(job =>
                   <Card
-                    key={job.attr.id}
+                    key={job.job_id}
                     style={{ marginTop: "12px" }}
                     initiallyExpanded={false}
                   >
                     <CardHeader
                       titleStyle={projectsCardTitleStyle2}
-                      title={job.attr.rel}
-                      subtitle={job.attr.id}
+                      title={job.url}
+                      subtitle={job.job_id}
                       actAsExpander
                       showExpandableButton
                     />
 
                     <CardText expandable>
-                      {job.data}
+                      {job.links}
                       <br />
                     </CardText>
                     <CardActions expandable>
