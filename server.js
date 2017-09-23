@@ -28,6 +28,10 @@ require("./api/api")(app);
 require("./api/promise")(app);
 require("./api/job_queue")(app);
 
+app.get("/test", function(req, res) {
+  res.send("hello world");
+});
+
 function logErrors(err, req, res, next) {
   console.error(err.stack);
   next(err);
@@ -76,14 +80,16 @@ if (cluster.isMaster && numCPUs > 1) {
 
 app.get("/job/:id", (req, res) => {
   // console.log(req.params.id);
-  Job.findOne({ job_id: req.params.id }).populate().exec((error, job) => {
-    console.log(job.status);
-    if (job.status === "processing" || job.status === "error") {
-      res.json(job);
-    } else {
-      res.json(job);
-    }
-  });
+  Job.findOne({ job_id: req.params.id })
+    .populate()
+    .exec((error, job) => {
+      console.log(job.status);
+      if (job.status === "processing" || job.status === "error") {
+        res.json(job);
+      } else {
+        res.json(job);
+      }
+    });
 });
 
 app.get("/records", (req, res) => {

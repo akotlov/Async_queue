@@ -27,17 +27,44 @@ const cheerio = require("cheerio");
 const htmlParseQueue = new Queue("html_parsing", "redis://127.0.0.1:6379");
 const resultQueue = new Queue("Result Queue");
 
+let counter = 0;
+let startTime = new Date();
+let runLoop = true;
+let size = 50;
+
+for (let i = 0; i < size; i++) {
+  const jobID = shortid.generate();
+  htmlParseQueue.add({ index: i }, { jobId: jobID }).then(function(job) {
+    logger.log(
+      "info",
+      "Job ID: " + job.id + " Data: " + JSON.stringify(job.data)
+    );
+  }, (err, index) => {
+    if (err) done(new Error(err));
+  });
+}
+
+resultQueue.on("completed", (job, result) => {
+  logger.log("info", "resultQueue completed job: ", job.id, result);
+});
+
 resultQueue.process(function(job, done) {
   let time = (job.data.result.testRunTime / 1000) % 60;
-
-  logger.log("info", "Received message", time.toFixed(1));
-
-  done();
-  /*if (job.data.result.links.lenght === 0) {
-    done();
+  //logger.log("info", "Received message", time.toFixed(1));
+  counter++;
+  logger.log("info", "counter: ", counter);
+  if (counter >= size) {
+    //runLoop = false;
+    let endTime = new Date();
+    let totalTime = endTime.getTime() - startTime.getTime();
+    //logger.log("info", "Operation took " + totalTime + " msec");
+    console.log("Operation took " + totalTime + " msec");
+  }
+  /*if (runLoop) {
   }*/
-  /*
-  async.map(job.data.result.links, url => {
+  done(null, job.data.result);
+
+  /*async.map(job.data.result.links, url => {
     const jobID = shortid.generate();
     htmlParseQueue.add({ url: url }, { jobId: jobID }).then(function(job) {
        logger.log("info","Job ID: " + job.id + " Data: " + JSON.stringify(job.data));

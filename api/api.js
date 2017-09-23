@@ -27,7 +27,7 @@ function getJobs(req, res, next) {
       return console.log("Scan Complete");
       res.send("No records found");
     } else {
-      console.log(sf('found {0} keys for "{1}"', reply[1].length, prefix));
+      //console.log(sf('found {0} keys for "{1}"', reply[1].length, prefix));
 
       var lookup = {};
       var reducedKeys = [];
