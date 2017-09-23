@@ -10,8 +10,8 @@ const logger = new winston.Logger({
   //level: "info",
   transports: [
     // colorize the output to the   console
-    new winston.transports.Console({ colorize: true }),
-    new winston.transports.File({ filename: "logfile.log" })
+    new winston.transports.Console({ colorize: true })
+    //new winston.transports.File({ filename: "logfile.log" })
   ]
 });
 
