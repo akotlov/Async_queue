@@ -2,14 +2,6 @@ const cluster = require("cluster");
 //const numCPUs = require("os").cpus().length;
 const numCPUs = 1;
 
-const winston = require("winston");
-const logger = new winston.Logger({
-  transports: [
-    // colorize the output to the console
-    new winston.transports.Console({ colorize: true })
-  ]
-});
-logger.level = "debug";
 const Job = require("./models/Job");
 
 const express = require("express");
@@ -35,10 +27,6 @@ app.use(errorHandler);
 require("./api/api")(app);
 require("./api/promise")(app);
 require("./api/job_queue")(app);
-
-app.get("/test", function(req, res) {
-  res.send("Hello World!");
-});
 
 function logErrors(err, req, res, next) {
   console.error(err.stack);
